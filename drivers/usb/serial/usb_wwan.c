@@ -370,6 +370,13 @@ static void usb_wwan_indat_callback(struct urb *urb)
 	portdata = usb_get_serial_port_data(port);
 	intfdata = port->serial->private;
 
+	spin_lock(&intfdata->susp_lock);
+	if (!portdata->opened) {
+		spin_unlock(&intfdata->susp_lock);
+		return;
+	}
+	spin_unlock(&intfdata->susp_lock);
+
 	usb_mark_last_busy(port->serial->dev);
 
 	if ((status == -ENOENT || !status) && urb->actual_length) {
@@ -386,7 +393,7 @@ static void usb_wwan_indat_callback(struct urb *urb)
 		__func__, status, endpoint);
 
 	spin_lock(&intfdata->susp_lock);
-	if (intfdata->suspended || !portdata->opened) {
+	if (intfdata->suspended) {
 		spin_unlock(&intfdata->susp_lock);
 		return;
 	}
@@ -535,7 +542,9 @@ int usb_wwan_open(struct tty_struct *tty, struct usb_serial_port *port)
 	if (intfdata->send_setup)
 		intfdata->send_setup(port);
 
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	serial->interface->needs_remote_wakeup = 1;
+#endif
 	spin_lock_irq(&intfdata->susp_lock);
 	portdata->opened = 1;
 	spin_unlock_irq(&intfdata->susp_lock);
@@ -562,13 +571,17 @@ void usb_wwan_close(struct usb_serial_port *port)
 		portdata->opened = 0;
 		spin_unlock_irq(&intfdata->susp_lock);
 
+		cancel_work_sync(&portdata->in_work);
+
 		for (i = 0; i < N_IN_URB; i++)
 			usb_kill_urb(portdata->in_urbs[i]);
 		for (i = 0; i < N_OUT_URB; i++)
 			usb_kill_urb(portdata->out_urbs[i]);
 		/* balancing - important as an error cannot be handled*/
 		usb_autopm_get_interface_no_resume(serial->interface);
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 		serial->interface->needs_remote_wakeup = 0;
+#endif
 	}
 }
 EXPORT_SYMBOL(usb_wwan_close);
