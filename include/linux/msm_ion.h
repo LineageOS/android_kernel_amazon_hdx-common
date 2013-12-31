@@ -505,7 +505,7 @@ static inline int msm_ion_unsecure_buffer(struct ion_client *client,
  * the cache operations performed
  */
 struct ion_flush_data {
-	struct ion_handle *handle;
+	ion_user_handle_t handle;
 	int fd;
 	void *vaddr;
 	unsigned int offset;
