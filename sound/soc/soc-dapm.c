@@ -3146,11 +3146,12 @@ int snd_soc_dapm_stream_event(struct snd_soc_pcm_runtime *rtd,
 	const char *stream, int event)
 {
 	struct snd_soc_card *card = rtd->card;
+	struct snd_soc_codec *codec = rtd->codec;
 
 	if (stream == NULL)
 		return 0;
 	mutex_lock_nested(&card->dapm_mutex, SND_SOC_DAPM_CLASS_PCM);
-	soc_dapm_stream_event(&card->dapm, stream, event);
+	soc_dapm_stream_event(&codec->dapm, stream, event);
 	mutex_unlock(&card->dapm_mutex);
 	return 0;
 }
