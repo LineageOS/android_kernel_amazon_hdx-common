@@ -671,6 +671,13 @@ config UID_CPUTIME
 	help
 	  Per UID based cpu time statistics exported to /proc/uid_cputime
 
+config IDME
+	bool "IDME support"
+        depends on PROC_FS
+	help
+	  Select Y here to enable IDME support to read the data
+          via userspace (i.e. /proc/idme/* entries)
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
