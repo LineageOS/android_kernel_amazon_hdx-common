@@ -65,6 +65,15 @@ int of_device_add(struct platform_device *ofdev)
 
 	return device_add(&ofdev->dev);
 }
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+EXPORT_SYMBOL(of_device_add);
+
+void of_device_del(struct platform_device *ofdev)
+{
+	device_del(&ofdev->dev);
+}
+EXPORT_SYMBOL(of_device_del);
+#endif
 
 int of_device_register(struct platform_device *pdev)
 {
