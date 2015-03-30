@@ -51,6 +51,13 @@
 #include <mach/rpm-regulator.h>
 #include "hbm.c"
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+#include <linux/cdev.h>
+#define ITC_CODE      0xBB
+#define ITC_SET_AIV        _IO(ITC_CODE, 1)
+#define ITC_CLEAR_AIV        _IO(ITC_CODE, 2)
+#endif
+
 #define MSM_USB_BASE (hcd->regs)
 #define USB_REG_START_OFFSET 0x90
 #define USB_REG_END_OFFSET 0x250
@@ -95,7 +102,10 @@ struct msm_hsic_hcd {
 	enum usb_vdd_type	vdd_type;
 
 	struct work_struct	bus_vote_w;
-	bool			bus_vote;
+	uint32_t		bus_vote;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	uint32_t		curr_itc;
+#endif
 
 	/* gp timer */
 	struct ehci_timer __iomem *timer;
@@ -108,6 +118,16 @@ struct msm_hsic_hcd {
 
 	struct pm_qos_request pm_qos_req_dma;
 	unsigned		enable_hbm:1;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	struct dev_pm_qos_request itc_qos_req;
+	struct notifier_block qos_itc_nb;
+
+	/* itc char device */
+	dev_t	ehci_itc_dev;
+	struct class *ehci_itc_class;
+	struct cdev ehci_itc_cdev;
+	struct device *ehci_itc_device;
+#endif
 };
 
 struct msm_hsic_hcd *__mehci;
@@ -126,6 +146,11 @@ static unsigned int ep_addr_rxdbg_mask = 9;
 module_param(ep_addr_rxdbg_mask, uint, S_IRUGO | S_IWUSR);
 static unsigned int ep_addr_txdbg_mask = 9;
 module_param(ep_addr_txdbg_mask, uint, S_IRUGO | S_IWUSR);
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static unsigned int itc_pnoc_thres = 4;
+module_param(itc_pnoc_thres, uint, S_IRUGO | S_IWUSR);
+#endif
 
 /* Maximum debug message length */
 #define DBG_MSG_LEN   128UL
@@ -723,6 +748,9 @@ static int msm_hsic_start(struct msm_hsic_hcd *mehci)
 	}
 
 	/*disable auto resume*/
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if (!pdata->enable_autoresume)
+#endif
 	ulpi_write(mehci, ULPI_IFC_CTRL_AUTORESUME, ULPI_CLR(ULPI_IFC_CTRL));
 
 	return 0;
@@ -841,7 +869,7 @@ static int msm_hsic_suspend(struct msm_hsic_hcd *mehci)
 		dev_err(mehci->dev, "unable to set vddcx voltage for VDD MIN\n");
 
 	if (mehci->bus_perf_client && debug_bus_voting_enabled) {
-		mehci->bus_vote = false;
+		mehci->bus_vote = 0;
 		queue_work(ehci_wq, &mehci->bus_vote_w);
 	}
 
@@ -907,7 +935,16 @@ static int msm_hsic_resume(struct msm_hsic_hcd *mehci)
 	wake_lock(&mehci->wlock);
 
 	if (mehci->bus_perf_client && debug_bus_voting_enabled) {
-		mehci->bus_vote = true;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		spin_lock(&mehci->wakeup_lock);
+		if(mehci->curr_itc != itc_pnoc_thres)
+#endif
+		mehci->bus_vote = 1;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		else
+			mehci->bus_vote = 2;
+		spin_unlock(&mehci->wakeup_lock);
+#endif
 		queue_work(ehci_wq, &mehci->bus_vote_w);
 	}
 
@@ -1484,6 +1521,54 @@ static int ehci_msm_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 	return ehci_urb_enqueue(hcd, urb, mem_flags);
 }
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+long ehci_itc_ioctl(struct file *filp, unsigned int cmd,
+                               unsigned long arg)
+{
+	int ret = 0;
+	struct msm_hsic_hcd *mehci = __mehci;
+
+	if(!mehci)
+		return ret;
+
+	if (_IOC_TYPE(cmd) != ITC_CODE) {
+		pr_err("Invalid ITC code\n");
+		return -EINVAL;
+	}
+
+	switch(cmd)
+	{
+		case ITC_SET_AIV:
+			pr_debug("Setting the ITC for AIV playback\n");
+			dev_pm_qos_update_request(&mehci->itc_qos_req, 2000);
+			break;
+
+		case ITC_CLEAR_AIV:
+			pr_debug("Clearing the ITC for AIV playback\n");
+			dev_pm_qos_update_request(&mehci->itc_qos_req, 125);
+			break;
+		default:
+			pr_err("Not a valid command\n");
+			ret = -EINVAL;
+			break;
+	}
+
+	return ret;
+}
+
+
+static int ehci_itc_open(struct inode *inode, struct file *file)
+{
+	return 0;
+}
+
+static const struct file_operations ehci_itc_fops = {
+       .owner          = THIS_MODULE,
+       .open           = ehci_itc_open,
+       .unlocked_ioctl = ehci_itc_ioctl,
+};
+#endif
+
 static struct hc_driver msm_hsic_driver = {
 	.description		= hcd_name,
 	.product_desc		= "Qualcomm EHCI Host Controller using HSIC",
@@ -1876,6 +1961,73 @@ static void ehci_hsic_msm_debugfs_cleanup(void)
 	debugfs_remove_recursive(ehci_hsic_msm_dbg_root);
 }
 
+unsigned hsic_itc_latency_table[] = {
+	125,
+	2 * 125,
+	4 * 125,
+	8 * 125,
+	16 * 125,
+	32 * 125,
+	64 * 125,
+};
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static int ehci_msm_hsic_itc_notify(struct notifier_block *nb,
+			unsigned long val, void *ptr)
+{
+	struct msm_hsic_hcd *mehci = container_of(nb, struct msm_hsic_hcd,
+							qos_itc_nb);
+	struct usb_hcd *hcd = hsic_to_hcd(mehci);
+	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
+	u32 cmd;
+	unsigned long flags;
+	int i, ret;
+
+	for (i = ARRAY_SIZE(hsic_itc_latency_table) - 1; i > 0; i--) {
+		if (val >= hsic_itc_latency_table[i])
+			break;
+	}
+	
+	dbg_log_event(NULL, "ITC Change", i);
+	if(atomic_read(&mehci->in_lpm)){
+		ehci->command &= ~(0xFF << 16);
+		ehci->command |= 1 << (16 + i);
+		spin_lock_irqsave(&mehci->wakeup_lock, flags);
+		mehci->curr_itc = i;
+		spin_unlock_irqrestore(&mehci->wakeup_lock, flags);
+		return NOTIFY_OK;
+	}
+	
+	/* should we set ITC[7:0] for immediate? NO */
+	spin_lock_irqsave(&ehci->lock, flags);
+	cmd = ehci_readl(ehci, &ehci->regs->command);
+	cmd &= ~(0xFF << 16);
+	cmd |= 1 << (16 + i);
+	ehci_writel(ehci, cmd, &ehci->regs->command);
+	spin_unlock_irqrestore(&ehci->lock, flags);
+
+	if(i == itc_pnoc_thres){
+		ret = msm_bus_scale_client_update_request(mehci->bus_perf_client,
+			2);
+		if (ret)
+			dev_err(mehci->dev, "%s: Failed to vote for bus bandwidth %d\n",
+				__func__, ret);
+	} else {
+		ret = msm_bus_scale_client_update_request(mehci->bus_perf_client,
+			1);
+		if (ret)
+			dev_err(mehci->dev, "%s: Failed to vote for bus bandwidth %d\n",
+				__func__, ret);
+	}
+	
+	spin_lock_irqsave(&mehci->wakeup_lock, flags);
+	mehci->curr_itc = i;
+	spin_unlock_irqrestore(&mehci->wakeup_lock, flags);
+	
+	return NOTIFY_OK;
+}
+#endif
+
 struct msm_hsic_host_platform_data *msm_hsic_dt_to_pdata(
 				struct platform_device *pdev)
 {
@@ -1925,6 +2077,13 @@ struct msm_hsic_host_platform_data *msm_hsic_dt_to_pdata(
 	if (pdata->log2_irq_thresh > 6)
 		pdata->log2_irq_thresh = 0;
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	of_property_read_u32(node, "hsic,max-log2-itc",
+					&pdata->max_log2_irq_thresh);
+	if (pdata->max_log2_irq_thresh > 6)
+		pdata->max_log2_irq_thresh = 6;
+#endif
+
 	pdata->bus_scale_table = msm_bus_cl_get_pdata(pdev);
 
 	pdata->pool_64_bit_align = of_property_read_bool(node,
@@ -1939,10 +2098,66 @@ struct msm_hsic_host_platform_data *msm_hsic_dt_to_pdata(
 				"qcom,ahb-async-bridge-bypass");
 	pdata->disable_cerr = of_property_read_bool(node,
 				"hsic,disable-cerr");
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	of_property_read_u32(pdev->dev.of_node,
+                               "qcom,hsic-swfi-latency",
+                               &pdata->swfi_latency);
+	of_property_read_u32(pdev->dev.of_node,
+                               "qcom,hsic-standalone-latency",
+                               &pdata->standalone_latency);
+	pdata->enable_autoresume = of_property_read_bool(node,
+					"qcom,enable-autoresume");
+#endif
 
 	return pdata;
 }
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static int ehci_hsic_setup_cdev(struct msm_hsic_hcd *mehci)
+{
+	int ret;
+	
+	ret = alloc_chrdev_region(&mehci->ehci_itc_dev, 0, 1, "ehci_itc");
+	if (ret < 0) {
+		pr_err("Fail to allocate ehci itc char dev region\n");
+		return ret;
+	}
+	mehci->ehci_itc_class = class_create(THIS_MODULE, "msm_hsic_itc");
+	if (ret < 0) {
+		pr_err("Fail to create ehci itc class\n");
+		goto unreg_chrdev;
+	}
+	cdev_init(&mehci->ehci_itc_cdev, &ehci_itc_fops);
+	mehci->ehci_itc_cdev.owner = THIS_MODULE;
+
+	ret = cdev_add(&mehci->ehci_itc_cdev, mehci->ehci_itc_dev, 1);
+	if (ret < 0) {
+		pr_err("Fail to add ehci itc cdev\n");
+		goto destroy_class;
+	}
+	mehci->ehci_itc_device = device_create(mehci->ehci_itc_class,
+					NULL, mehci->ehci_itc_dev, NULL,
+					"ehci_itc");
+	if (IS_ERR(mehci->ehci_itc_device)) {
+		pr_err("Fail to create ehci itc device\n");
+		ret = PTR_ERR(mehci->ehci_itc_device);
+		mehci->ehci_itc_device = NULL;
+		goto del_cdev;
+	}
+
+	pr_debug("ehci itc cdev setup success\n");
+	return 0;
+
+del_cdev:
+	cdev_del(&mehci->ehci_itc_cdev);
+destroy_class:
+	class_destroy(mehci->ehci_itc_class);
+unreg_chrdev:
+	unregister_chrdev_region(mehci->ehci_itc_dev, 1);
+
+	return ret;
+}
+#endif
 
 static int __devinit ehci_hsic_msm_probe(struct platform_device *pdev)
 {
@@ -2037,6 +2252,10 @@ static int __devinit ehci_hsic_msm_probe(struct platform_device *pdev)
 	mehci->enable_hbm = pdata->enable_hbm;
 
 	if (pdata) {
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (pdata->log2_irq_thresh < 0 || pdata->log2_irq_thresh > 6)
+			pdata->log2_irq_thresh = 0;
+#endif
 		mehci->ehci.log2_irq_thresh = pdata->log2_irq_thresh;
 		mehci->ehci.disable_cerr = pdata->disable_cerr;
 	}
@@ -2159,7 +2378,7 @@ static int __devinit ehci_hsic_msm_probe(struct platform_device *pdev)
 		    msm_bus_scale_register_client(pdata->bus_scale_table);
 		/* Configure BUS performance parameters for MAX bandwidth */
 		if (mehci->bus_perf_client) {
-			mehci->bus_vote = true;
+			mehci->bus_vote = 1;
 			queue_work(ehci_wq, &mehci->bus_vote_w);
 		} else {
 			dev_err(&pdev->dev, "%s: Failed to register BUS "
@@ -2173,6 +2392,15 @@ static int __devinit ehci_hsic_msm_probe(struct platform_device *pdev)
 		pm_qos_add_request(&mehci->pm_qos_req_dma,
 			PM_QOS_CPU_DMA_LATENCY, pdata->standalone_latency + 1);
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	dev_pm_qos_add_request(&pdev->dev, &mehci->itc_qos_req,
+			hsic_itc_latency_table[pdata->max_log2_irq_thresh]);
+	dev_pm_qos_expose_latency_limit(&pdev->dev,
+			hsic_itc_latency_table[pdata->max_log2_irq_thresh]);
+	mehci->qos_itc_nb.notifier_call = ehci_msm_hsic_itc_notify;
+	dev_pm_qos_add_notifier(&pdev->dev, &mehci->qos_itc_nb);
+
+#endif
 	/*
 	 * This pdev->dev is assigned parent of root-hub by USB core,
 	 * hence, runtime framework automatically calls this driver's
@@ -2192,6 +2420,13 @@ static int __devinit ehci_hsic_msm_probe(struct platform_device *pdev)
 
 	if (pdata && pdata->consider_ipa_handshake)
 		msm_bam_set_hsic_host_dev(&pdev->dev);
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	ret = ehci_hsic_setup_cdev(mehci);
+	if(ret)
+		pr_err("%s: Failed to register cdev\n", __func__); 
+	
+#endif
 
 	return 0;
 
@@ -2231,6 +2466,20 @@ static int __devexit ehci_hsic_msm_remove(struct platform_device *pdev)
 	/* Remove the HCD prior to releasing our resources. */
 	usb_remove_hcd(hcd);
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if(mehci->ehci_itc_device){
+		device_destroy(mehci->ehci_itc_class, mehci->ehci_itc_dev);
+		cdev_del(&mehci->ehci_itc_cdev);
+		class_destroy(mehci->ehci_itc_class);
+		unregister_chrdev_region(mehci->ehci_itc_dev, 1);
+	}
+
+	dev_pm_qos_remove_notifier(&pdev->dev, &mehci->qos_itc_nb);
+	dev_pm_qos_hide_latency_limit(&pdev->dev);
+	dev_pm_qos_remove_request(&mehci->itc_qos_req);
+
+#endif
+
 	if (pdata && pdata->standalone_latency)
 		pm_qos_remove_request(&mehci->pm_qos_req_dma);
 
@@ -2254,7 +2503,7 @@ static int __devexit ehci_hsic_msm_remove(struct platform_device *pdev)
 	 * fail. Results are undefined if unregister is called in the middle of
 	 * update request.
 	 */
-	mehci->bus_vote = false;
+	mehci->bus_vote = 0;
 	cancel_work_sync(&mehci->bus_vote_w);
 
 	if (mehci->bus_perf_client)
