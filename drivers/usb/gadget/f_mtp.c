@@ -921,6 +921,13 @@ static void receive_file_work(struct work_struct *data)
 				 * short packet is used to signal EOF for
 				 * sizes > 4 gig
 				 */
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+				if ((0 != count) && (0 == read_req->actual)) {
+					r = -ENODEV;
+					dev->state = STATE_OFFLINE;
+					break;
+				}
+#endif
 				DBG(cdev, "got short packet\n");
 				count = 0;
 			}
