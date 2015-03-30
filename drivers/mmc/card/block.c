@@ -2004,6 +2004,12 @@ static void mmc_blk_write_packing_control(struct mmc_queue *mq,
 	struct mmc_host *host = mq->card->host;
 	int data_dir;
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	// disable the pack write command for samsung parts
+	if (mq->card->cid.manfid == 0x15 )
+		return;
+#endif
+
 	if (!(host->caps2 & MMC_CAP2_PACKED_WR))
 		return;
 
