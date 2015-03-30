@@ -152,6 +152,13 @@
 
 #define QPNP_CHARGER_DEV_NAME	"qcom,qpnp-charger"
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+#define SMBB_BOOST_BOOST_VSET		0x1541
+#define BOOST_4DOT5VOLT			0x16
+#define BMS1_EN_CTL			0x4046
+#define BMS_EN				BIT(7)
+#endif
+
 /* Status bits and masks */
 #define CHGR_BOOT_DONE			BIT(7)
 #define CHGR_CHG_EN			BIT(7)
@@ -1060,7 +1067,11 @@ qpnp_chg_vinmin_set(struct qpnp_chg_chip *chip, int voltage)
 	}
 	if (voltage >= QPNP_CHG_VINMIN_HIGH_MIN_MV) {
 		temp = QPNP_CHG_VINMIN_HIGH_MIN_VAL;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		temp += (voltage - QPNP_CHG_VINMIN_MIN_MV)
+#else
 		temp += (voltage - QPNP_CHG_VINMIN_HIGH_MIN_MV)
+#endif
 			/ QPNP_CHG_VINMIN_STEP_HIGH_MV;
 	} else {
 		temp = QPNP_CHG_VINMIN_MIN_VAL;
@@ -1711,8 +1722,11 @@ static irqreturn_t
 qpnp_chg_usb_usbin_valid_irq_handler(int irq, void *_chip)
 {
 	struct qpnp_chg_chip *chip = _chip;
-	int usb_present, host_mode, usbin_health;
+	int usb_present, host_mode;
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
+	int usbin_health;
 	u8 psy_health_sts;
+#endif
 
 	usb_present = qpnp_chg_is_usb_chg_plugged_in(chip);
 	host_mode = qpnp_chg_is_otg_en_set(chip);
@@ -1723,6 +1737,7 @@ qpnp_chg_usb_usbin_valid_irq_handler(int irq, void *_chip)
 	if (host_mode)
 		return IRQ_HANDLED;
 
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	if (chip->usb_present ^ usb_present) {
 		chip->aicl_settled = false;
 		chip->usb_present = usb_present;
@@ -1787,6 +1802,7 @@ qpnp_chg_usb_usbin_valid_irq_handler(int irq, void *_chip)
 		power_supply_set_present(chip->usb_psy, chip->usb_present);
 		schedule_work(&chip->batfet_lcl_work);
 	}
+#endif
 
 	return IRQ_HANDLED;
 }
@@ -5226,6 +5242,9 @@ qpnp_charger_probe(struct spmi_device *spmi)
 	struct resource *resource;
 	struct spmi_resource *spmi_resource;
 	int rc = 0;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	u8 value = 0x00;
+#endif
 
 	chip = devm_kzalloc(&spmi->dev,
 			sizeof(struct qpnp_chg_chip), GFP_KERNEL);
@@ -5239,7 +5258,11 @@ qpnp_charger_probe(struct spmi_device *spmi)
 	chip->dev = &(spmi->dev);
 	chip->spmi = spmi;
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+        chip->usb_psy = power_supply_get_by_name("smb349_usb");
+#else
 	chip->usb_psy = power_supply_get_by_name("usb");
+#endif
 	if (!chip->usb_psy) {
 		pr_err("usb supply not found deferring probe\n");
 		rc = -EPROBE_DEFER;
@@ -5457,6 +5480,10 @@ qpnp_charger_probe(struct spmi_device *spmi)
 	chip->insertion_ocv_uv = -EINVAL;
 	chip->batt_present = qpnp_chg_is_batt_present(chip);
 	if (chip->bat_if_base) {
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (!power_supply_get_by_name("bq27x41")) {
+		printk(KERN_ERR "%s: Error! Gas gauge not found!!\n", __func__);
+#endif
 		chip->batt_psy.name = "battery";
 		chip->batt_psy.type = POWER_SUPPLY_TYPE_BATTERY;
 		chip->batt_psy.properties = msm_batt_power_props;
@@ -5477,6 +5504,9 @@ qpnp_charger_probe(struct spmi_device *spmi)
 			pr_err("batt failed to register rc = %d\n", rc);
 			goto fail_chg_enable;
 		}
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		}
+#endif
 		INIT_WORK(&chip->adc_measure_work,
 			qpnp_bat_if_adc_measure_work);
 		INIT_WORK(&chip->adc_disable_work,
@@ -5582,6 +5612,27 @@ qpnp_charger_probe(struct spmi_device *spmi)
 
 	schedule_delayed_work(&chip->aicl_check_work,
 		msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+        pr_info("Enabling VBUS override\n");
+
+        value = 0xa5;
+        spmi_ext_register_writel(spmi->ctrl, 0, 0x13d0, &value, 1);
+
+        value = 0x2f;
+        spmi_ext_register_writel(spmi->ctrl, 0, 0x13ea, &value, 1);
+#endif
+#if defined(CONFIG_ARCH_MSM8974_THOR)
+	pr_info("Set voltage boost to 4.5 V\n");
+	value = BOOST_4DOT5VOLT;
+	spmi_ext_register_writel(spmi->ctrl, 0, SMBB_BOOST_BOOST_VSET, &value, 1);
+#endif
+#if !defined(CONFIG_QPNP_BMS)
+	/* Make sure that BMS is disabled if not being used */
+	rc = qpnp_chg_masked_write(chip, BMS1_EN_CTL, BMS_EN, 0, 1);
+	if (rc) {
+		pr_err("failed to disable sw BMS\n");
+	}
+#endif
 	pr_info("success chg_dis = %d, bpd = %d, usb = %d, dc = %d b_health = %d batt_present = %d\n",
 			chip->charging_disabled,
 			chip->bpd_detection,
@@ -5602,6 +5653,21 @@ fail_chg_enable:
 	regulator_unregister(chip->boost_vreg.rdev);
 	return rc;
 }
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static void qpnp_charger_shutdown(struct spmi_device *spmi)
+{
+        u8 value = 0x00;
+
+        pr_info("Disabling USB override\n");
+
+        value = 0xa5;
+        spmi_ext_register_writel(spmi->ctrl, 0, 0x13d0, &value, 1);
+
+        value = 0x00;
+        spmi_ext_register_writel(spmi->ctrl, 0, 0x13ea, &value, 1);
+}
+#endif
 
 static int __devexit
 qpnp_charger_remove(struct spmi_device *spmi)
@@ -5678,6 +5744,9 @@ static const struct dev_pm_ops qpnp_chg_pm_ops = {
 static struct spmi_driver qpnp_charger_driver = {
 	.probe		= qpnp_charger_probe,
 	.remove		= __devexit_p(qpnp_charger_remove),
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+        .shutdown       = qpnp_charger_shutdown,
+#endif
 	.driver		= {
 		.name		= QPNP_CHARGER_DEV_NAME,
 		.owner		= THIS_MODULE,
