@@ -59,7 +59,12 @@ enum rmnet_ioctl_extended_cmds_e {
         RMNET_IOCTL_SET_SLEEP_STATE            = 0x0014,   /* Set sleep state */
         RMNET_IOCTL_SET_XLAT_DEV_INFO          = 0x0015,   /* xlat dev name   */
         RMNET_IOCTL_DEREGISTER_DEV             = 0x0016,   /* Dereg a net dev */
-        RMNET_IOCTL_EXTENDED_MAX               = 0x0017
+	/* OEM */
+	RMNET_IOCTL_PM_ENABLE	               = 0x9000, /* PM runtime enable	     */
+	RMNET_IOCTL_PM_DISABLE	               = 0x9001, /* PM runtime disable     */
+	RMNET_IOCTL_PM_WAKE_ENABLE             = 0x9002, /* Remote wakeup enable   */
+	RMNET_IOCTL_PM_WAKE_DISABLE            = 0x9003, /* Remote wakeup disable  */
+        RMNET_IOCTL_EXTENDED_MAX
 };
 
 /* Return values for the RMNET_IOCTL_GET_SUPPORTED_FEATURES IOCTL */
