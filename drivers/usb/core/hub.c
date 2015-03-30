@@ -2736,6 +2736,10 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 	int		port1 = udev->portnum;
 	int		status;
 	u16		portchange, portstatus;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	struct usb_device *hdev;
+	struct usb_hcd	*hcd;
+#endif
 
 	/* Skip the initial Clear-Suspend step for a remote wakeup */
 	status = hub_port_status(hub, port1, &portstatus, &portchange);
@@ -2795,6 +2799,15 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 	if (status < 0) {
 		dev_dbg(&udev->dev, "can't resume, status %d\n", status);
 		hub_port_logical_disconnect(hub, port1);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (udev->reset_resume && udev->persist_enabled
+					&& hub->hdev){
+			hdev = hub->hdev;
+			hcd = bus_to_hcd(hdev->bus);
+			if (hcd->driver->reset_resume_handler)
+				hcd->driver->reset_resume_handler(hcd);
+		}
+#endif
 	} else  {
 		/* Try to enable USB2 hardware LPM */
 		if (udev->usb2_hw_lpm_capable == 1)
