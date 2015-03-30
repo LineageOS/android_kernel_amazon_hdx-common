@@ -325,7 +325,9 @@ static void cfg80211_event_work(struct work_struct *work)
 
 struct wiphy *wiphy_new(const struct cfg80211_ops *ops, int sizeof_priv)
 {
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	static int wiphy_counter;
+#endif
 
 	struct cfg80211_registered_device *rdev;
 	int alloc_size;
@@ -349,10 +351,16 @@ struct wiphy *wiphy_new(const struct cfg80211_ops *ops, int sizeof_priv)
 
 	mutex_lock(&cfg80211_mutex);
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	rdev->wiphy_idx = 0;
+#else
 	rdev->wiphy_idx = wiphy_counter++;
+#endif
 
 	if (unlikely(!wiphy_idx_valid(rdev->wiphy_idx))) {
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 		wiphy_counter--;
+#endif
 		mutex_unlock(&cfg80211_mutex);
 		/* ugh, wrapped! */
 		kfree(rdev);
