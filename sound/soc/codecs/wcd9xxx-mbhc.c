@@ -4914,12 +4914,14 @@ static int wcd9xxx_detect_impedance(struct wcd9xxx_mbhc *mbhc, uint32_t *zl,
 int wcd9xxx_mbhc_get_impedance(struct wcd9xxx_mbhc *mbhc, uint32_t *zl,
 			       uint32_t *zr)
 {
+#if !defined(CONFIG_ARCH_MSM8974_APOLLO) && !defined(CONFIG_ARCH_MSM8974_THOR)
 	*zl = mbhc->zl;
 	*zr = mbhc->zr;
 
 	if (*zl && *zr)
 		return 0;
 	else
+#endif
 		return -EINVAL;
 }
 

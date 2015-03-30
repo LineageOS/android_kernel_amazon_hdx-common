@@ -297,6 +297,13 @@ enum {
 
 #define TAIKO_COMP_DIGITAL_GAIN_OFFSET 3
 
+#if defined(CONFIG_SND_SOC_MSM8974_THOR) || defined(CONFIG_SND_SOC_MSM8974_APOLLO)
+static const unsigned int digital_gain_range[] = {
+	TLV_DB_RANGE_HEAD(1),
+	0, 123, TLV_DB_SCALE_ITEM(-8400, 100, 0),
+};
+#endif
+
 static const DECLARE_TLV_DB_SCALE(digital_gain, 0, 1, 0);
 static const DECLARE_TLV_DB_SCALE(line_gain, 0, 7, 1);
 static const DECLARE_TLV_DB_SCALE(analog_gain, 0, 25, 1);
@@ -1277,6 +1284,7 @@ static int taiko_mad_input_put(struct snd_kcontrol *kcontrol,
 
 static const struct snd_kcontrol_new taiko_snd_controls[] = {
 
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 	SOC_SINGLE_S8_TLV("RX1 Digital Volume", TAIKO_A_CDC_RX1_VOL_CTL_B2_CTL,
 		-84, 40, digital_gain),
 	SOC_SINGLE_S8_TLV("RX2 Digital Volume", TAIKO_A_CDC_RX2_VOL_CTL_B2_CTL,
@@ -1291,6 +1299,22 @@ static const struct snd_kcontrol_new taiko_snd_controls[] = {
 		-84, 40, digital_gain),
 	SOC_SINGLE_S8_TLV("RX7 Digital Volume", TAIKO_A_CDC_RX7_VOL_CTL_B2_CTL,
 		-84, 40, digital_gain),
+#else
+	SOC_SINGLE_S8_TLV("RX1 Digital Volume", TAIKO_A_CDC_RX1_VOL_CTL_B2_CTL,
+		-84, 40, digital_gain_range),
+	SOC_SINGLE_S8_TLV("RX2 Digital Volume", TAIKO_A_CDC_RX2_VOL_CTL_B2_CTL,
+		-84, 40, digital_gain_range),
+	SOC_SINGLE_S8_TLV("RX3 Digital Volume", TAIKO_A_CDC_RX3_VOL_CTL_B2_CTL,
+		-84, 40, digital_gain_range),
+	SOC_SINGLE_S8_TLV("RX4 Digital Volume", TAIKO_A_CDC_RX4_VOL_CTL_B2_CTL,
+		-84, 40, digital_gain_range),
+	SOC_SINGLE_S8_TLV("RX5 Digital Volume", TAIKO_A_CDC_RX5_VOL_CTL_B2_CTL,
+		-84, 40, digital_gain_range),
+	SOC_SINGLE_S8_TLV("RX6 Digital Volume", TAIKO_A_CDC_RX6_VOL_CTL_B2_CTL,
+		-84, 40, digital_gain_range),
+	SOC_SINGLE_S8_TLV("RX7 Digital Volume", TAIKO_A_CDC_RX7_VOL_CTL_B2_CTL,
+		-84, 40, digital_gain_range),
+#endif
 
 	SOC_SINGLE_S8_TLV("DEC1 Volume", TAIKO_A_CDC_TX1_VOL_CTL_GAIN, -84, 40,
 		digital_gain),
@@ -7215,6 +7239,7 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
 		dev_err(codec->dev, "%s hwdep failed %d\n", __func__, ret);
 		goto err_hwdep;
 	}
+#if !defined(CONFIG_ARCH_MSM8974_APOLLO) && !defined(CONFIG_ARCH_MSM8974_THOR)
 	/* init and start mbhc */
 	ret = wcd9xxx_mbhc_init(&taiko->mbhc, &taiko->resmgr, codec,
 				taiko_enable_mbhc_micbias,
@@ -7224,6 +7249,7 @@ static int taiko_codec_probe(struct snd_soc_codec *codec)
 		pr_err("%s: mbhc init failed %d\n", __func__, ret);
 		goto err_hwdep;
 	}
+#endif
 
 	taiko->codec = codec;
 	for (i = 0; i < COMPANDER_MAX; i++) {
@@ -7361,10 +7387,12 @@ static int taiko_codec_remove(struct snd_soc_codec *codec)
 					   WCD9XXX_BANDGAP_AUDIO_MODE);
 	WCD9XXX_BG_CLK_UNLOCK(&taiko->resmgr);
 
+#if !defined(CONFIG_ARCH_MSM8974_APOLLO) && !defined(CONFIG_ARCH_MSM8974_THOR)
 	taiko_cleanup_irqs(taiko);
 
 	/* cleanup MBHC */
 	wcd9xxx_mbhc_deinit(&taiko->mbhc);
+#endif
 	/* cleanup resmgr */
 	wcd9xxx_resmgr_deinit(&taiko->resmgr);
 
