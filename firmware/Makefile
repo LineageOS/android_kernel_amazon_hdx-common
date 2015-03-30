@@ -141,6 +141,26 @@ fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
 
+ifdef CONFIG_ARCH_MSM8974_APOLLO
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_HDX_FW_UPDATE) += Synaptics.0.A.apollo.img \
+							    Synaptics.1.A.apollo.img \
+							    Synaptics.2.A.apollo.img \
+							    Synaptics.3.A.apollo.img \
+							    Synaptics.3.B.apollo.img \
+							    Synaptics.g.A.apollo.img
+endif
+
+ifdef CONFIG_ARCH_MSM8974_THOR
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_HDX_FW_UPDATE) += Synaptics.0.A.thor.img \
+							    Synaptics.1.A.thor.img \
+							    Synaptics.1.B.thor.img \
+							    Synaptics.2.A.thor.img \
+                                                            Synaptics.2.B.thor.img \
+							    Synaptics.3.A.thor.img \
+						            Synaptics.3.B.thor.img \
+							    Synaptics.g.A.thor.img
+endif
+
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 
 # Directories which we _might_ need to create, so we have a rule for them.
