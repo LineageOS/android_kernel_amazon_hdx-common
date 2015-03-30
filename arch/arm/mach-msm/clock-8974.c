@@ -4882,6 +4882,12 @@ static struct clk_lookup msm_clocks_8974pro_only[] __initdata = {
 };
 
 static struct clk_lookup msm_clocks_8974_only[] __initdata = {
+#if defined(CONFIG_ARCH_MSM8974_APOLLO) || defined(CONFIG_ARCH_MSM8974_THOR)
+	CLK_LOOKUP("cam_src_clk", mmss_gp0_clk_src.c, "6c.qcom,camera"), /*ov8835*/
+	CLK_LOOKUP("cam_src_clk", gp1_clk_src.c, "20.qcom,camera"), /*ov9726*/
+	CLK_LOOKUP("cam_clk", camss_gp0_clk.c, "6c.qcom,camera"), /*ov8835*/
+	CLK_LOOKUP("cam_clk", gcc_gp1_clk.c, "20.qcom,camera"), /*ov9726*/
+#else
 	CLK_LOOKUP("cam_src_clk", mmss_gp1_clk_src.c, "90.qcom,camera"),
 	CLK_LOOKUP("cam_clk", camss_gp1_clk.c, "90.qcom,camera"),
 	CLK_LOOKUP("cam_src_clk", mmss_gp0_clk_src.c, "0.qcom,camera"),
@@ -4890,6 +4896,7 @@ static struct clk_lookup msm_clocks_8974_only[] __initdata = {
 	CLK_LOOKUP("cam_clk", camss_gp0_clk.c, "0.qcom,camera"),
 	CLK_LOOKUP("cam_clk", camss_gp1_clk.c, "1.qcom,camera"),
 	CLK_LOOKUP("cam_clk", gcc_gp1_clk.c, "2.qcom,camera"),
+#endif
 };
 
 static struct clk_lookup msm_clocks_8974_common[] __initdata = {
@@ -4914,6 +4921,10 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 	CLK_LOOKUP("dma_bam_pclk", gcc_bam_dma_ahb_clk.c, "msm_sps"),
 	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f991f000.serial"),
 	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f9924000.i2c"),
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	CLK_LOOKUP("iface_clk", gcc_blsp2_ahb_clk.c, "f9968000.i2c"),
+	CLK_LOOKUP("core_clk", gcc_blsp2_qup6_i2c_apps_clk.c, "f9968000.i2c"),
+#endif
 	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f991e000.serial"),
 	CLK_LOOKUP("core_clk", gcc_blsp1_qup1_i2c_apps_clk.c, "f9923000.i2c"),
 	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f9923000.i2c"),

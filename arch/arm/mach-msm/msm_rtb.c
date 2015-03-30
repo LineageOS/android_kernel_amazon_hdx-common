@@ -303,6 +303,9 @@ static struct of_device_id msm_match_table[] = {
 	{.compatible = RTB_COMPAT_STR},
 	{},
 };
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+EXPORT_COMPAT(RTB_COMPAT_STR);
+#endif
 
 static struct platform_driver msm_rtb_driver = {
 	.driver         = {

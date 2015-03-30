@@ -273,7 +273,11 @@ static void msm_restart_prepare(const char *cmd)
 	if (get_dload_mode() || (cmd != NULL && cmd[0] != '\0'))
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
 	else
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
+#else
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_HARD_RESET);
+#endif
 
 	if (cmd != NULL) {
 		if (!strncmp(cmd, "bootloader", 10)) {
