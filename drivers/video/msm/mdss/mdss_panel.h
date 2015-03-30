@@ -151,6 +151,10 @@ enum mdss_intf_events {
 	MDSS_EVENT_CONT_SPLASH_FINISH,
 	MDSS_EVENT_PANEL_UPDATE_FPS,
 	MDSS_EVENT_FB_REGISTERED,
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	MDSS_EVENT_FRAME_UPDATE,
+	MDSS_EVENT_NO_FRAME_UPDATE,
+#endif
 	MDSS_EVENT_PANEL_CLK_CTRL,
 	MDSS_EVENT_DSI_CMDLIST_KOFF,
 	MDSS_EVENT_ENABLE_PARTIAL_UPDATE,
@@ -236,6 +240,9 @@ struct mipi_panel_info {
 	/* Clock required during LP commands */
 	char force_clk_lane_hs;
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	bool panel_psr_mode;
+#endif
 	char vsync_enable;
 	char hw_vsync_mode;
 

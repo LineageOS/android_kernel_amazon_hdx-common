@@ -75,7 +75,12 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata, int enable)
 			goto error;
 		}
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if ((pdata->panel_info.panel_power_on == 0) && 
+			!pdata->panel_info.mipi.lp11_init) {
+#else
 		if (!pdata->panel_info.mipi.lp11_init) {
+#endif
 			ret = mdss_dsi_panel_reset(pdata, 1);
 			if (ret) {
 				pr_err("%s: Panel reset failed. rc=%d\n",
@@ -1012,6 +1017,9 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 {
 	int rc = 0;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	struct mipi_panel_info *mipi = NULL;
+#endif
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -1020,6 +1028,9 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 	pr_debug("%s+:event=%d\n", __func__, event);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	mipi  = &pdata->panel_info.mipi;
+#endif
 
 	MDSS_XLOG(event, arg, ctrl_pdata->ndx, 0x3333);
 
@@ -1033,19 +1044,102 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		break;
 	case MDSS_EVENT_PANEL_ON:
 		ctrl_pdata->ctrl_state |= CTRL_STATE_MDP_ACTIVE;
-		if (ctrl_pdata->on_cmds.link_state == DSI_HS_MODE)
+		if (ctrl_pdata->on_cmds.link_state == DSI_HS_MODE) {
 			rc = mdss_dsi_unblank(pdata);
+		}
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		else if (!mipi->panel_psr_mode) {
+			pr_err("%s: PSR not enabled. event=%d\n", __func__, event);
+		} else if ((ctrl_pdata->psr_off_cmds.link_state == DSI_HS_MODE)
+			   && (ctrl_pdata->ctrl_state & CTRL_STATE_PANEL_PSR_ON)) {
+			mdss_dsi_set_tx_power_mode(1, pdata);
+			rc = ctrl_pdata->psr_ctrl(pdata, 0);
+			ctrl_pdata->ctrl_state &=  ~CTRL_STATE_PANEL_PSR_ON;
+		} else {
+			pr_debug("%s:event=%d,PSR disable not called.Ctrl_state: %d\n",
+				 __func__, event,
+				 ctrl_pdata->psr_off_cmds.link_state);
+		}
+#endif
 		break;
 	case MDSS_EVENT_BLANK:
 		if (ctrl_pdata->off_cmds.link_state == DSI_HS_MODE)
 			rc = mdss_dsi_blank(pdata);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		else {
+			pr_debug("%s:event=%d,Unprepare (blank) not called.Ctrl_state: %d\n",
+					 __func__, event,
+					 ctrl_pdata->on_cmds.link_state);
+			rc = -EINVAL;
+		}
+#endif
 		break;
 	case MDSS_EVENT_PANEL_OFF:
 		ctrl_pdata->ctrl_state &= ~CTRL_STATE_MDP_ACTIVE;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if ((mipi->panel_psr_mode)
+			&& (ctrl_pdata->ctrl_state & CTRL_STATE_PANEL_PSR_ON)) {
+			pr_debug("%s:event=%d, Ctrl state: %d\n",
+					 __func__, event, ctrl_pdata->ctrl_state);
+			mdss_dsi_ctrl_dsi_mode(false, EN_DSI_VIDEO_MODE,
+								   pdata);
+			mdss_dsi_clk_ctrl(ctrl_pdata, DSI_ALL_CLKS, 0);
+			return rc;
+		}
+#endif
 		if (ctrl_pdata->off_cmds.link_state == DSI_LP_MODE)
 			rc = mdss_dsi_blank(pdata);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (ctrl_pdata->off_cmds.link_state == DSI_LP_MODE) {
+			pr_debug("%s:event=%d, calling unprepare (blank): ctrl_state: %d\n",
+				 __func__, event,
+				 ctrl_pdata->on_cmds.link_state);
+			rc = mdss_dsi_blank(pdata);
+		}
+		msleep(40);
+#endif
 		rc = mdss_dsi_off(pdata);
 		break;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	case MDSS_EVENT_NO_FRAME_UPDATE:
+		pr_debug("%s: NO_FRAME_UPDATE event=%d\n", __func__, event);
+		if (!mipi->panel_psr_mode) {
+			pr_debug("%s: PSR not enabled. event=%d\n", __func__, event);
+		} else if ((ctrl_pdata->psr_on_cmds.link_state == DSI_HS_MODE)
+				   && !(ctrl_pdata->ctrl_state & CTRL_STATE_PANEL_PSR_ON)) {
+			rc = ctrl_pdata->psr_ctrl(pdata, 1);
+			ctrl_pdata->ctrl_state |= CTRL_STATE_PANEL_PSR_ON;
+		} else {
+			pr_debug("%s:event=%d,PSR enable not called.Ctrl_state: %d\n",
+				 __func__, event,
+				 ctrl_pdata->psr_on_cmds.link_state);
+		}
+		break;
+	case MDSS_EVENT_FRAME_UPDATE:
+		pr_debug("%s: FRAME_UPDATE event=%d\n", __func__, event);
+		if ((mipi->panel_psr_mode)
+			&& (ctrl_pdata->ctrl_state & CTRL_STATE_PANEL_PSR_ON)) {
+			mdss_dsi_clk_ctrl(ctrl_pdata, DSI_ALL_CLKS, 1);
+			mdss_dsi_sw_reset(pdata);
+			mdss_dsi_ctrl_dsi_mode(true,
+					EN_DSI_VIDEO_MODE,
+					pdata);
+			mdss_dsi_controller_cfg(true, pdata);
+		}
+		if ((ctrl_pdata->psr_off_cmds.link_state == DSI_LP_MODE)
+			&& (ctrl_pdata->ctrl_state & CTRL_STATE_PANEL_PSR_ON)) {
+			mdss_dsi_op_mode_config(mipi->mode, pdata);
+			mdss_dsi_set_tx_power_mode(1, pdata);
+			rc = ctrl_pdata->psr_ctrl(pdata, 0);
+			mdelay(20);
+			ctrl_pdata->ctrl_state &=  ~CTRL_STATE_PANEL_PSR_ON;
+		} else {
+			pr_debug("%s:event=%d,PSR disable not called.Ctrl_state: %d\n",
+				 __func__, event,
+				 ctrl_pdata->psr_off_cmds.link_state);
+		}
+		break;
+#endif
 	case MDSS_EVENT_CONT_SPLASH_FINISH:
 		if (ctrl_pdata->off_cmds.link_state == DSI_LP_MODE)
 			rc = mdss_dsi_blank(pdata);
@@ -1526,6 +1620,22 @@ int dsi_panel_device_register(struct device_node *pan_node,
 		pr_err("%s:%d, Disp_en gpio not specified\n",
 						__func__, __LINE__);
 
+#if defined(CONFIG_ARCH_MSM8974_APOLLO)
+	ctrl_pdata->disp_lcd_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+			"qcom,platform-lcd-enable-gpio", 0);
+	if (!gpio_is_valid(ctrl_pdata->disp_lcd_en_gpio)) {
+		pr_err("%s:%d, Disp_lcd_en gpio not specified\n",
+				__func__, __LINE__);
+	}
+
+	ctrl_pdata->mbist_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+			"qcom,platform-lcd-mbist-gpio", 0);
+	if (!gpio_is_valid(ctrl_pdata->mbist_gpio)) {
+		pr_err("%s:%d, mbist_gpio not specified\n",
+				__func__, __LINE__);
+	}
+#endif
+
 	if (pinfo->type == MIPI_CMD_PANEL) {
 		ctrl_pdata->disp_te_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
 						"qcom,platform-te-gpio", 0);
@@ -1573,6 +1683,13 @@ int dsi_panel_device_register(struct device_node *pan_node,
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio))
 		pr_err("%s:%d, reset gpio not specified\n",
 						__func__, __LINE__);
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	rc = mdss_dsi_request_gpios(ctrl_pdata);
+	if (rc) {
+		pr_err("gpio request failed\n");
+	}
+#endif
 
 	if (pinfo->mode_gpio_state != MODE_GPIO_NOT_VALID) {
 
