@@ -406,6 +406,13 @@ config BATTERY_BQ27520
 	help
 	  Say Y here to enable support for batteries with BQ27520 (I2C) chips.
 
+config BATTERY_BQ27X41
+	tristate "BQ27x41 battery driver"
+	depends on I2C
+	default n
+	help
+	  Say Y here to enable support for batteries with BQ27x41 (I2C) chips.
+
 config SMB358_CHARGER
 	tristate "SMB358 Battery Charger"
 	depends on I2C
