@@ -350,9 +350,19 @@ config SMB137C_CHARGER
 	  charging, setting the input current limit, and enabling USB OTG mode
 	  in order to supply 5 V on the VBUS line.
 
+config SMB349_CHARGER_AMZ
+	tristate "Summit SMB349 charger"
+	depends on I2C && (ARCH_MSM8974_THOR || ARCH_MSM8974_APOLLO)
+	help
+	  Say Y to enable support for the SMB349 switching mode based charger
+	  and sysfs. The driver supports controlling charger-enable and
+	  current limiting capabilities. The driver also lets the
+	  SMB349 be operated as a slave device via the power supply
+	  framework.
+
 config SMB349_CHARGER
 	tristate "smb349 charger"
-	depends on I2C
+	depends on I2C && (!ARCH_MSM8974_THOR && !ARCH_MSM8974_APOLLO)
 	help
 	  Say Y to enable support for the SMB349 switching mode based charger
 	  and sysfs. The driver supports controlling charger-enable and
