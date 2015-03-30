@@ -48,7 +48,18 @@
 #include "pm.h"
 #include "modem_notifier.h"
 #include "platsmp.h"
+#if defined(CONFIG_AMZN_RAM_CONSOLE) && (defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO))
+#include "amzn_ram_console.h"
+#endif
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+enum WLANBT_STATUS {
+    WLANOFF_BTOFF = 1,
+    WLANOFF_BTON,
+    WLANON_BTOFF,
+    WLANON_BTON
+};
+#endif
 
 static struct memtype_reserve msm8974_reserve_table[] __initdata = {
 	[MEMTYPE_SMI] = {
@@ -76,6 +87,9 @@ void __init msm_8974_reserve(void)
 	reserve_info = &msm8974_reserve_info;
 	of_scan_flat_dt(dt_scan_for_memory_reserve, msm8974_reserve_table);
 	msm_reserve();
+#if defined(CONFIG_AMZN_RAM_CONSOLE) && (defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO))
+	amzn_ram_console_init(AMZN_RAM_CONSOLE_START_DEFAULT, AMZN_RAM_CONSOLE_SIZE_DEFAULT);
+#endif
 }
 
 static void __init msm8974_early_memory(void)
@@ -153,6 +167,9 @@ static struct of_dev_auxdata msm8974_auxdata_lookup[] __initdata = {
 			"msm_hsic_host", NULL),
 	OF_DEV_AUXDATA("qcom,hsic-smsc-hub", 0, "msm_smsc_hub",
 			msm_hsic_host_adata),
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	OF_DEV_AUXDATA("rohm,bu52061", 0, "hall_sensor", NULL),
+#endif
 	{}
 };
 
@@ -160,6 +177,49 @@ static void __init msm8974_map_io(void)
 {
 	msm_map_8974_io();
 }
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+#define DDR_VENDOR_ID_SAMSUNG	0x1
+#define DDR_VENDOR_ID_ELPIDA	0x3
+#define DDR_VENDOR_ID_HYNIX	0x6
+#define DDR_VENDOR_ID_MICRON	0xFF
+
+void __init msm8974_print_ddr_vendor_id(void)
+{
+	uint64_t *vendor_id_smem;
+	uint8_t vendor_id = 0;
+	char *vendor;
+
+	vendor_id_smem = smem_alloc(SMEM_ID_VENDOR1, sizeof(uint64_t));
+
+	if (vendor_id_smem) {
+		vendor_id = (uint8_t) *vendor_id_smem;
+	}
+
+	switch (vendor_id) {
+	case DDR_VENDOR_ID_SAMSUNG:
+		vendor = "Samsung";
+		break;
+
+	case DDR_VENDOR_ID_ELPIDA:
+		vendor = "Elpida";
+		break;
+
+	case DDR_VENDOR_ID_HYNIX:
+		vendor = "Hynix";
+		break;
+
+	case DDR_VENDOR_ID_MICRON:
+		vendor = "Micron";
+		break;
+
+	default:
+		vendor = "Unknown";
+	}
+
+	printk(KERN_ERR "ddr: I def:ddrinfo:vendor=%s:\n", vendor);
+}
+#endif
 
 void __init msm8974_init(void)
 {
@@ -172,6 +232,9 @@ void __init msm8974_init(void)
 	regulator_has_full_constraints();
 	board_dt_populate(adata);
 	msm8974_add_drivers();
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	msm8974_print_ddr_vendor_id();
+#endif
 }
 
 void __init msm8974_init_very_early(void)

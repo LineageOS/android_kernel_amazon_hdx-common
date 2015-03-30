@@ -232,6 +232,9 @@ static inline uint16_t msm_mpm_get_irq_a2m(struct irq_data *d)
 	return elem ? node->pin : 0;
 }
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static bool msm_mpm_in_suspend;
+#endif
 static int msm_mpm_enable_irq_exclusive(
 	struct irq_data *d, bool enable, bool wakeset)
 {
@@ -275,7 +278,11 @@ static int msm_mpm_enable_irq_exclusive(
 		else
 			__clear_bit(d->hwirq, irq_apps);
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (!wakeset && !msm_mpm_in_suspend && (msm_mpm_initialized & MSM_MPM_DEVICE_PROBED))
+#else
 		if (!wakeset && (msm_mpm_initialized & MSM_MPM_DEVICE_PROBED))
+#endif
 			complete(&wake_wq);
 	}
 
@@ -596,16 +603,34 @@ static void msm_mpm_sys_low_power_modes(bool allow)
 
 void msm_mpm_suspend_prepare(void)
 {
-	bool allow = msm_mpm_irqs_detectable(false) &&
+	bool allow;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	unsigned long flags;
+	spin_lock_irqsave(&msm_mpm_lock, flags);
+#endif
+	allow = msm_mpm_irqs_detectable(false) &&
 		msm_mpm_gpio_irqs_detectable(false);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	msm_mpm_in_suspend = true;
+	spin_unlock_irqrestore(&msm_mpm_lock, flags);
+#endif
 	msm_mpm_sys_low_power_modes(allow);
 }
 EXPORT_SYMBOL(msm_mpm_suspend_prepare);
 
 void msm_mpm_suspend_wake(void)
 {
-	bool allow = msm_mpm_irqs_detectable(true) &&
+	bool allow;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	unsigned long flags;
+	spin_lock_irqsave(&msm_mpm_lock, flags);
+#endif
+	allow = msm_mpm_irqs_detectable(true) &&
 		msm_mpm_gpio_irqs_detectable(true);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	spin_unlock_irqrestore(&msm_mpm_lock, flags);
+	msm_mpm_in_suspend = false;
+#endif
 	msm_mpm_sys_low_power_modes(allow);
 }
 EXPORT_SYMBOL(msm_mpm_suspend_wake);
@@ -619,6 +644,12 @@ static void msm_mpm_work_fn(struct work_struct *work)
 		spin_lock_irqsave(&msm_mpm_lock, flags);
 		allow = msm_mpm_irqs_detectable(true) &&
 				msm_mpm_gpio_irqs_detectable(true);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (msm_mpm_in_suspend) {
+			spin_unlock_irqrestore(&msm_mpm_lock, flags);
+			continue;
+		}
+#endif
 		spin_unlock_irqrestore(&msm_mpm_lock, flags);
 		msm_mpm_sys_low_power_modes(allow);
 	}
