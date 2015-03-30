@@ -47,6 +47,7 @@ enum lm75_type {		/* keep sorted in alphabetical order */
 	tcn75,
 	tmp100,
 	tmp101,
+	tmp103,
 	tmp105,
 	tmp175,
 	tmp275,
@@ -73,6 +74,8 @@ struct lm75_data {
 	u8			orig_conf;
 	char			valid;		/* !=0 if registers are valid */
 	unsigned long		last_updated;	/* In jiffies */
+	u8                      byte_access;    /* Device requires byte access
+						   to the temperature register */
 	u16			temp[3];	/* Register values,
 						   0 = input
 						   1 = max
@@ -97,8 +100,12 @@ static ssize_t show_temp(struct device *dev, struct device_attribute *da,
 	if (IS_ERR(data))
 		return PTR_ERR(data);
 
-	return sprintf(buf, "%d\n",
+	if (data->byte_access) {
+		return sprintf(buf, "%d\n", data->temp[attr->index] * 1000);
+	} else {
+		return sprintf(buf, "%d\n",
 		       LM75_TEMP_FROM_REG(data->temp[attr->index]));
+	}
 }
 
 static ssize_t set_temp(struct device *dev, struct device_attribute *da,
@@ -151,6 +158,7 @@ lm75_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	int status;
 	u8 set_mask, clr_mask;
 	int new;
+	const char *type;
 
 	if (!i2c_check_functionality(client->adapter,
 			I2C_FUNC_SMBUS_BYTE_DATA | I2C_FUNC_SMBUS_WORD_DATA))
@@ -197,6 +205,20 @@ lm75_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	dev_info(&client->dev, "%s: sensor '%s'\n",
 		 dev_name(data->hwmon_dev), client->name);
 
+	if (id->driver_data == tmp103) {
+		data->byte_access = 1;
+	}
+
+	if (!of_property_read_string((&client->dev)->of_node, "type", &type)
+			&& !strcmp(type, "tmp103")) {
+		data->byte_access = 1;
+	}
+
+	if (data->byte_access) {
+		dev_info(&client->dev, "%s: sensor is TMP103\n",
+			dev_name(data->hwmon_dev));
+	}
+
 	return 0;
 
 exit_remove:
@@ -230,6 +252,7 @@ static const struct i2c_device_id lm75_ids[] = {
 	{ "tcn75", tcn75, },
 	{ "tmp100", tmp100, },
 	{ "tmp101", tmp101, },
+	{ "tmp103", tmp103, },
 	{ "tmp105", tmp105, },
 	{ "tmp175", tmp175, },
 	{ "tmp275", tmp275, },
@@ -364,11 +387,17 @@ static const struct dev_pm_ops lm75_dev_pm_ops = {
 #define LM75_DEV_PM_OPS NULL
 #endif /* CONFIG_PM */
 
+static const struct of_device_id lm75_match[] = {
+	{ .compatible = "ti,tmp103", },
+	{ },
+};
+
 static struct i2c_driver lm75_driver = {
 	.class		= I2C_CLASS_HWMON,
 	.driver = {
 		.name	= "lm75",
 		.pm	= LM75_DEV_PM_OPS,
+		.of_match_table = of_match_ptr(lm75_match),
 	},
 	.probe		= lm75_probe,
 	.remove		= lm75_remove,
@@ -388,10 +417,20 @@ static struct i2c_driver lm75_driver = {
  */
 static int lm75_read_value(struct i2c_client *client, u8 reg)
 {
+	struct lm75_data *data = i2c_get_clientdata(client);
+	int value;
+
 	if (reg == LM75_REG_CONF)
 		return i2c_smbus_read_byte_data(client, reg);
-	else
-		return i2c_smbus_read_word_swapped(client, reg);
+	else {
+		if (data->byte_access && reg == 0x00) {
+			value = i2c_smbus_read_byte_data(client, reg);
+		} else {
+			value = i2c_smbus_read_word_swapped(client, reg);
+		}
+
+		return value;
+	}
 }
 
 static int lm75_write_value(struct i2c_client *client, u8 reg, u16 value)
