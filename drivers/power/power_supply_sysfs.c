@@ -163,6 +163,9 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(charge_full),
 	POWER_SUPPLY_ATTR(charge_empty),
 	POWER_SUPPLY_ATTR(charge_now),
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	POWER_SUPPLY_ATTR(charge_now_design),
+#endif
 	POWER_SUPPLY_ATTR(charge_avg),
 	POWER_SUPPLY_ATTR(charge_counter),
 	POWER_SUPPLY_ATTR(charge_counter_shadow),
