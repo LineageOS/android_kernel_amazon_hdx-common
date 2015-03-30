@@ -165,6 +165,14 @@ MODULE_PARM_DESC(prop_chg_detect, "Enable Proprietary charger detection");
 #define PWR_EVNT_IRQ_STAT_REG    (QSCRATCH_REG_OFFSET + 0x58)
 #define PWR_EVNT_IRQ_MASK_REG    (QSCRATCH_REG_OFFSET + 0x5C)
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+/* VBUS sensing config registers */
+#define HS_PHY_CTRL_VBUSVLDEXT0		BIT(13)
+#define HS_PHY_CTRL_VBUSVLDEXTSEL0	BIT(14)
+#define HS_PHY_CTRL_UTMI_OTG_VBUS_VALID	BIT(20)
+#define SS_PHY_CTRL_LANE0_PWR_PRESENT	BIT(24)
+#endif
+
 struct dwc3_msm_req_complete {
 	struct list_head list_item;
 	struct usb_request *req;
@@ -1128,6 +1136,47 @@ int msm_register_usb_ext_notification(struct usb_ext_notification *info)
 	return 0;
 }
 EXPORT_SYMBOL(msm_register_usb_ext_notification);
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static void dwc3_msm_config_vbus_sensing(bool enable, struct dwc3 *dwc)
+{
+	struct dwc3_msm *msm = dev_get_drvdata(dwc->dev->parent);;
+
+	dev_dbg(msm->dev, "%s: enable  = %d\n", __func__, enable);
+
+	if (!enable)
+		goto disable_vbus_sensing;
+
+	/* Set External VBUS Valid Select */
+	dwc3_msm_write_readback(msm->base, HS_PHY_CTRL_REG,
+		HS_PHY_CTRL_VBUSVLDEXTSEL0, HS_PHY_CTRL_VBUSVLDEXTSEL0);
+	/* Enable dp pull up resistor */
+	dwc3_msm_write_readback(msm->base, HS_PHY_CTRL_REG,
+			HS_PHY_CTRL_VBUSVLDEXT0, HS_PHY_CTRL_VBUSVLDEXT0);
+	/* VBUS output valid from phy to USB3.0 Controller */
+	dwc3_msm_write_readback(msm->base, HS_PHY_CTRL_REG,
+			HS_PHY_CTRL_UTMI_OTG_VBUS_VALID,
+			HS_PHY_CTRL_UTMI_OTG_VBUS_VALID);
+	/* VBUS indication from HS phy to SS phy */
+	dwc3_msm_write_readback(msm->base, SS_PHY_CTRL_REG,
+			SS_PHY_CTRL_LANE0_PWR_PRESENT,
+			SS_PHY_CTRL_LANE0_PWR_PRESENT);
+
+	return;
+
+disable_vbus_sensing:
+
+	/* Disable dp pull up resistor */
+	dwc3_msm_write_readback(msm->base, HS_PHY_CTRL_REG,
+			HS_PHY_CTRL_VBUSVLDEXT0, 0);
+	/* Clear VBUS indication from HS phy to SS phy */
+	dwc3_msm_write_readback(msm->base, SS_PHY_CTRL_REG,
+			SS_PHY_CTRL_LANE0_PWR_PRESENT, 0);
+	/* Clear VBUS output valid from phy to USB3.0 Controller */
+	dwc3_msm_write_readback(msm->base, HS_PHY_CTRL_REG,
+			HS_PHY_CTRL_UTMI_OTG_VBUS_VALID, 0);
+}
+#endif
 
 /* HSPHY */
 static int dwc3_hsusb_config_vddcx(struct dwc3_msm *dwc, int high)
@@ -2551,6 +2600,7 @@ static void dwc3_id_work(struct work_struct *w)
 	}
 }
 
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 static irqreturn_t dwc3_pmic_id_irq(int irq, void *data)
 {
 	struct dwc3_msm *mdwc = data;
@@ -2565,6 +2615,7 @@ static irqreturn_t dwc3_pmic_id_irq(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
+#endif
 
 static void dwc3_adc_notification(enum qpnp_tm_state state, void *ctx)
 {
@@ -2626,6 +2677,7 @@ static void dwc3_init_adc_work(struct work_struct *w)
 	mdwc->id_adc_detect = true;
 }
 
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 static ssize_t adc_enable_show(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
@@ -2662,6 +2714,7 @@ static ssize_t adc_enable_store(struct device *dev,
 
 static DEVICE_ATTR(adc_enable, S_IRUGO | S_IWUSR, adc_enable_show,
 		adc_enable_store);
+#endif
 
 static int dwc3_msm_ext_chg_open(struct inode *inode, struct file *file)
 {
@@ -2853,7 +2906,9 @@ static int __devinit dwc3_msm_probe(struct platform_device *pdev)
 	struct dwc3_msm *mdwc;
 	struct resource *res;
 	void __iomem *tcsr;
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	unsigned long flags;
+#endif
 	int ret = 0;
 	int len = 0;
 	u32 tmp[3];
@@ -3075,8 +3130,15 @@ static int __devinit dwc3_msm_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev, "irqreq HSPHYINT failed\n");
 			goto disable_hs_ldo;
 		}
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (!mdwc->charger.skip_chg_detect) {
+		    enable_irq_wake(mdwc->hs_phy_irq);
+		}
+#endif
 	}
 
+/* remove ID pin detection, this causes problem on some of G2 board */
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	if (mdwc->ext_xceiv.otg_capability) {
 		mdwc->pmic_id_irq =
 			platform_get_irq_byname(pdev, "pmic_id_irq");
@@ -3121,6 +3183,7 @@ static int __devinit dwc3_msm_probe(struct platform_device *pdev)
 			mdwc->pmic_id_irq = 0;
 		}
 	}
+#endif
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (!res) {
@@ -3262,6 +3325,13 @@ static int __devinit dwc3_msm_probe(struct platform_device *pdev)
 				goto put_xcvr;
 			}
 		}
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (of_property_read_bool(node, "qcom,vbus-sensing") &&
+				mdwc->ext_xceiv.otg_capability)
+			mdwc->ext_xceiv.config_vbus_sensing =
+				dwc3_msm_config_vbus_sensing;
+#endif
 
 		if (mdwc->ext_xceiv.otg_capability)
 			mdwc->ext_xceiv.ext_block_reset = dwc3_msm_block_reset;

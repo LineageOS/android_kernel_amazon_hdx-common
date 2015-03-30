@@ -327,6 +327,11 @@ static int dwc3_otg_start_peripheral(struct usb_otg *otg, int on)
 	if (!otg->gadget)
 		return -EINVAL;
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if (ext_xceiv && ext_xceiv->config_vbus_sensing)
+		ext_xceiv->config_vbus_sensing(on, dotg->dwc);
+#endif
+
 	if (on) {
 		dev_dbg(otg->phy->dev, "%s: turn on gadget %s\n",
 					__func__, otg->gadget->name);
@@ -552,7 +557,11 @@ static int dwc3_otg_set_power(struct usb_phy *phy, unsigned mA)
 			dotg->charger->chg_type == DWC3_PROPRIETARY_CHARGER)
 		power_supply_type = POWER_SUPPLY_TYPE_USB_DCP;
 	else
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		power_supply_type = POWER_SUPPLY_TYPE_BATTERY;
+#else
 		power_supply_type = POWER_SUPPLY_TYPE_UNKNOWN;
+#endif
 
 	power_supply_set_supply_type(dotg->psy, power_supply_type);
 
@@ -810,6 +819,10 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				}
 			} else {
 				/* no charger registered, start peripheral */
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+				/* assuming SDP */
+				phy->state = OTG_STATE_B_PERIPHERAL;
+#endif
 				if (dwc3_otg_start_peripheral(&dotg->otg, 1)) {
 					/*
 					 * Probably set_peripheral not called

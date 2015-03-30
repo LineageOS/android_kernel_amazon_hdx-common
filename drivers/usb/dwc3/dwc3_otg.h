@@ -117,6 +117,9 @@ struct dwc3_ext_xceiv {
 	/* for block reset USB core */
 	void	(*ext_block_reset)(struct dwc3_ext_xceiv *ext_xceiv,
 					bool core_reset);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	void	(*config_vbus_sensing)(bool enable, struct dwc3 * dwc);
+#endif
 };
 
 /* for external transceiver driver */
