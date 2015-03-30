@@ -55,6 +55,9 @@
 #include <asm/traps.h>
 #include <asm/unwind.h>
 #include <asm/memblock.h>
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+#include <asm/io.h>
+#endif
 
 #if defined(CONFIG_DEPRECATED_PARAM_STRUCT)
 #include "compat.h"
@@ -1033,6 +1036,39 @@ static int __init proc_cpu_init(void)
 fs_initcall(proc_cpu_init);
 #endif
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+#define HWIO_QFPROM_RAW_RD_WR_PERM_LSB_ADDR            (0xfc4b80a8)
+#define HWIO_QFPROM_RAW_RD_WR_PERM_SIZE                4
+#define HWIO_QFPROM_RAW_RD_WR_PERM_LSB_SERIAL_NUM_BMSK (1<<18)
+#define HWIO_QFPROM_RAW_SERIAL_NUM_LSB_ADDR            (0xfc4b81f0)
+#define HWIO_QFPROM_RAW_SERIAL_NUM_SIZE                8
+
+static void check_sys_serial(void)
+{
+    unsigned x = 0;
+    void * vaddress = 0;
+
+    if (system_serial_high | system_serial_low)
+        return;
+
+    if (!(vaddress = ioremap(HWIO_QFPROM_RAW_RD_WR_PERM_LSB_ADDR, HWIO_QFPROM_RAW_RD_WR_PERM_SIZE)))
+        return;
+
+    x = ioread32(vaddress);
+    iounmap(vaddress);
+    if (!(x & HWIO_QFPROM_RAW_RD_WR_PERM_LSB_SERIAL_NUM_BMSK))
+    {
+        if (!(vaddress = ioremap(HWIO_QFPROM_RAW_SERIAL_NUM_LSB_ADDR, HWIO_QFPROM_RAW_SERIAL_NUM_SIZE )))
+            return;
+        system_serial_low = ioread32(vaddress);                // Serial Num
+        system_serial_high = ioread32(vaddress + 4) & 0xffff;  // Chip ID
+        iounmap(vaddress);
+    }
+
+    return;
+}
+#endif
+
 static const char *hwcap_str[] = {
 	"swp",
 	"half",
@@ -1119,6 +1155,9 @@ static int c_show(struct seq_file *m, void *v)
 	else
 		seq_printf(m, "Hardware\t: %s\n", arch_read_hardware_id());
 	seq_printf(m, "Revision\t: %04x\n", system_rev);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	check_sys_serial();
+#endif
 	seq_printf(m, "Serial\t\t: %08x%08x\n",
 		   system_serial_high, system_serial_low);
 
