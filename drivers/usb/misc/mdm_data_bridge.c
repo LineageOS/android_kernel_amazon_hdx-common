@@ -1084,6 +1084,11 @@ static const struct usb_device_id bridge_ids[] = {
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9079, 4),
 	.driver_info = (unsigned long)rmnet_hsusb_bridge_names,
 	},
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	{ USB_DEVICE_INTERFACE_NUMBER(0x1949, 0x9005, 3),
+	.driver_info = (unsigned long)rmnet_hsic_bridge_names,
+	},
+#endif
 
 	{ } /* Terminating entry */
 };
