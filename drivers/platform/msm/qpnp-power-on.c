@@ -142,6 +142,9 @@ struct qpnp_pon {
 	int num_pon_config;
 	u16 base;
 	struct delayed_work bark_work;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	struct delayed_work kpdpwr_bark_work;
+#endif
 };
 
 static struct qpnp_pon *sys_reset_dev;
@@ -445,8 +448,25 @@ static irqreturn_t qpnp_kpdpwr_irq(int irq, void *_pon)
 	return IRQ_HANDLED;
 }
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static void kpdpwr_bark_work_func(struct work_struct *work)
+{
+	struct qpnp_pon *pon =
+		container_of(work, struct qpnp_pon, kpdpwr_bark_work.work);
+
+	if (kobject_uevent(&pon->spmi->dev.kobj, KOBJ_REMOVE)) {
+		dev_err(&pon->spmi->dev, "Unable to send power down uevent\n");
+	}
+}
+#endif
+
 static irqreturn_t qpnp_kpdpwr_bark_irq(int irq, void *_pon)
 {
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	struct qpnp_pon *pon = _pon;
+
+	schedule_delayed_work(&pon->kpdpwr_bark_work, 0);
+#endif
 	return IRQ_HANDLED;
 }
 
@@ -1270,6 +1290,9 @@ static int __devinit qpnp_pon_probe(struct spmi_device *spmi)
 	dev_set_drvdata(&spmi->dev, pon);
 
 	INIT_DELAYED_WORK(&pon->bark_work, bark_work_func);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	INIT_DELAYED_WORK(&pon->kpdpwr_bark_work, kpdpwr_bark_work_func);
+#endif
 
 	/* register the PON configurations */
 	rc = qpnp_pon_config_init(pon);
@@ -1287,6 +1310,9 @@ static int qpnp_pon_remove(struct spmi_device *spmi)
 	struct qpnp_pon *pon = dev_get_drvdata(&spmi->dev);
 
 	cancel_delayed_work_sync(&pon->bark_work);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	cancel_delayed_work_sync(&pon->kpdpwr_bark_work);
+#endif
 
 	if (pon->pon_input)
 		input_unregister_device(pon->pon_input);
