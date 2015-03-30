@@ -547,12 +547,18 @@ struct msm_hsic_host_platform_data {
 
 struct msm_usb_host_platform_data {
 	unsigned int power_budget;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	unsigned int fixed_bus_num;
+#endif
 	int pmic_gpio_dp_irq;
 	unsigned int dock_connect_irq;
 	bool use_sec_phy;
 	bool no_selective_suspend;
 	int resume_gpio;
 	bool is_uicc;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	bool phy_sof_workaround;
+#endif
 };
 
 /**

@@ -916,8 +916,16 @@ static int usb_register_bus(struct usb_bus *bus)
 {
 	int result = -E2BIG;
 	int busnum;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	struct usb_hcd *hcd = container_of (bus, struct usb_hcd, self);
+#endif
 
 	mutex_lock(&usb_bus_list_lock);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if (hcd->fixed_bus_num)
+		busnum = hcd->fixed_bus_num;
+	else
+#endif
 	busnum = find_next_zero_bit (busmap.busmap, USB_MAXBUS, 1);
 	if (busnum >= USB_MAXBUS) {
 		printk (KERN_ERR "%s: too many buses\n", usbcore_name);
