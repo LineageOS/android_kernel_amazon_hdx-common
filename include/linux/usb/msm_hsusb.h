@@ -517,12 +517,18 @@ struct msm_hsic_host_platform_data {
 	bool ignore_cal_pad_config;
 	bool phy_sof_workaround;
 	bool phy_susp_sof_workaround;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	bool enable_autoresume;
+#endif
 	u32 reset_delay;
 	int strobe_pad_offset;
 	int data_pad_offset;
 
 	struct msm_bus_scale_pdata *bus_scale_table;
 	unsigned log2_irq_thresh;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	unsigned max_log2_irq_thresh;
+#endif
 
 	/* gpio used to resume peripheral */
 	unsigned resume_gpio;
@@ -553,6 +559,7 @@ struct msm_usb_host_platform_data {
 	bool is_uicc;
 #if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
 	bool phy_sof_workaround;
+	bool sw_fpr_ctrl;
 #endif
 };
 

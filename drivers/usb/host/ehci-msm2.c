@@ -42,6 +42,9 @@
 #include <linux/debugfs.h>
 #include <mach/rpm-regulator.h>
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+#include <linux/kobject.h>
+#endif
 #define MSM_USB_BASE (hcd->regs)
 
 #define PDEV_NAME_LEN 20
@@ -64,7 +67,7 @@ struct msm_hcd {
 	struct regulator			*hsusb_1p8;
 	struct regulator			*vbus;
 	struct msm_xo_voter			*xo_handle;
-	bool					async_int;
+	atomic_t				async_int;
 	bool					vbus_on;
 	atomic_t				in_lpm;
 	int					pmic_gpio_dp_irq;
@@ -83,7 +86,29 @@ struct msm_hcd {
 	int					wakeup_irq;
 	enum usb_vdd_type			vdd_type;
 	void __iomem				*usb_phy_ctrl_reg;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	unsigned long				flags;
+#endif
 };
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static bool wan_present(void)
+{
+       struct device_node *ap;
+       int len;
+
+       ap = of_find_node_by_path("/idme/board_id");
+       if (ap) {
+               const char *boardid = of_get_property(ap, "value", &len);
+               if (len >= 2) {
+                       if (boardid[0] == '0' && boardid[5] == '1')
+                               return true;
+               }
+       }
+
+       return false;
+}
+#endif
 
 static inline struct msm_hcd *hcd_to_mhcd(struct usb_hcd *hcd)
 {
@@ -302,6 +327,11 @@ static void msm_ehci_vbus_power(struct msm_hcd *mhcd, bool on)
 	int ret;
 	const struct msm_usb_host_platform_data *pdata;
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if (wan_present())
+		return;
+#endif
+
 	pdata = mhcd->dev->platform_data;
 	if (pdata && pdata->is_uicc)
 		return;
@@ -372,6 +402,9 @@ static int msm_ehci_init_vbus(struct msm_hcd *mhcd, int init)
 		return rc;
 	}
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if (!wan_present()) {
+#endif
 	mhcd->vbus = devm_regulator_get(mhcd->dev, "vbus");
 	ret = PTR_ERR(mhcd->vbus);
 	if (ret == -EPROBE_DEFER) {
@@ -381,6 +414,9 @@ static int msm_ehci_init_vbus(struct msm_hcd *mhcd, int init)
 		pr_err("Unable to get vbus\n");
 		return -ENODEV;
 	}
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	}
+#endif
 
 	if (pdata) {
 		hcd->power_budget = pdata->power_budget;
@@ -682,6 +718,15 @@ static int msm_hsusb_reset(struct msm_hcd *mhcd)
 	/*Clear the PHY interrupts by reading the PHY interrupt latch register*/
 	msm_ulpi_read(mhcd, ULPI_USB_INT_LATCH);
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	/*disable auto resume*/
+	msm_ulpi_write(mhcd, ULPI_IFC_CTRL_AUTORESUME, ULPI_CLR(ULPI_IFC_CTRL));
+
+	/* Configure USB PHY settings */
+	msm_ulpi_write(mhcd, 0x6A, 0x81);
+	msm_ulpi_write(mhcd, 0x24, 0x82);
+#endif
+
 	return 0;
 }
 
@@ -691,11 +736,18 @@ static void msm_ehci_phy_susp_fail_work(struct work_struct *w)
 					phy_susp_fail_work);
 	struct usb_hcd *hcd = mhcd_to_hcd(mhcd);
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	pm_runtime_disable(mhcd->dev);
+#endif
 	msm_ehci_vbus_power(mhcd, 0);
 	usb_remove_hcd(hcd);
 	msm_hsusb_reset(mhcd);
 	usb_add_hcd(hcd, hcd->irq, IRQF_SHARED);
 	msm_ehci_vbus_power(mhcd, 1);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	pm_runtime_set_active(mhcd->dev);
+	pm_runtime_enable(mhcd->dev);
+#endif
 }
 
 #define PHY_SUSP_TIMEOUT_MSEC	500
@@ -773,10 +825,12 @@ static int msm_ehci_suspend(struct msm_hcd *mhcd)
 	 * block data communication from PHY.  Enable asynchronous interrupt
 	 * only when wakeup gpio IRQ is not present.
 	 */
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	if (mhcd->wakeup_irq)
 		writel_relaxed(readl_relaxed(USB_USBCMD) | ULPI_STP_CTRL,
 				USB_USBCMD);
 	else
+#endif
 		writel_relaxed(readl_relaxed(USB_USBCMD) | ASYNC_INTR_CTRL |
 				ULPI_STP_CTRL, USB_USBCMD);
 
@@ -845,6 +899,10 @@ static int msm_ehci_resume(struct msm_hcd *mhcd)
 		dev_dbg(mhcd->dev, "%s called in !in_lpm\n", __func__);
 		return 0;
 	}
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	/* Handles race with Async interrupt */
+	disable_irq(hcd->irq);
+#endif
 
 	if (mhcd->pmic_gpio_dp_irq_enabled) {
 		disable_irq_wake(mhcd->pmic_gpio_dp_irq);
@@ -921,8 +979,8 @@ skip_phy_resume:
 	usb_hcd_resume_root_hub(hcd);
 	atomic_set(&mhcd->in_lpm, 0);
 
-	if (mhcd->async_int) {
-		mhcd->async_int = false;
+	if (atomic_read(&mhcd->async_int)) {
+		atomic_set(&mhcd->async_int, 0);
 		pm_runtime_put_noidle(mhcd->dev);
 		enable_irq(hcd->irq);
 	}
@@ -931,6 +989,10 @@ skip_phy_resume:
 		atomic_set(&mhcd->pm_usage_cnt, 0);
 		pm_runtime_put_noidle(mhcd->dev);
 	}
+// HASH: TODO: SO ODD HERE
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	enable_irq(hcd->irq);
+#endif
 
 	dev_info(mhcd->dev, "EHCI USB exited from low power mode\n");
 
@@ -945,7 +1007,7 @@ static irqreturn_t msm_ehci_irq(struct usb_hcd *hcd)
 	if (atomic_read(&mhcd->in_lpm)) {
 		dev_dbg(mhcd->dev, "phy async intr\n");
 		disable_irq_nosync(hcd->irq);
-		mhcd->async_int = true;
+		atomic_set(&mhcd->async_int, 1);
 		pm_runtime_get(mhcd->dev);
 		return IRQ_HANDLED;
 	}
@@ -1053,13 +1115,25 @@ static int msm_ehci_reset(struct usb_hcd *hcd)
 		writel_relaxed(readl_relaxed(USB_PHY_CTRL2) | (1<<16),
 								USB_PHY_CTRL2);
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if (pdata && pdata->sw_fpr_ctrl)
+		writel_relaxed(readl(USB_GENCONFIG2) | (1<<17), USB_GENCONFIG2);
+#endif
+
 	ehci_port_power(ehci, 1);
 	return 0;
 }
 
 static int msm_ehci_bus_resume_with_gpio(struct usb_hcd *hcd)
 {
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	struct ehci_hcd		*ehci = hcd_to_ehci (hcd);
+	u32			temp;
+	u32			power_okay;
+	unsigned long		resume_needed = 0;
+#endif
 	struct msm_hcd *mhcd = hcd_to_mhcd(hcd);
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	int ret;
 
 	gpio_direction_output(mhcd->resume_gpio, 1);
@@ -1069,7 +1143,141 @@ static int msm_ehci_bus_resume_with_gpio(struct usb_hcd *hcd)
 	gpio_direction_output(mhcd->resume_gpio, 0);
 
 	return ret;
+#else
+	struct msm_usb_host_platform_data *pdata = mhcd->dev->platform_data;
+
+	if (mhcd->resume_gpio)
+		gpio_direction_output(mhcd->resume_gpio, 1);
+
+	if(pdata && !pdata->sw_fpr_ctrl) {
+		ehci_bus_resume(hcd);
+
+	} else {
+		if (time_before (jiffies, ehci->next_statechange))
+			msleep(5);
+		spin_lock_irq (&ehci->lock);
+		if (!HCD_HW_ACCESSIBLE(hcd)) {
+			spin_unlock_irq(&ehci->lock);
+			return -ESHUTDOWN;
+		}
+
+		if (unlikely(ehci->debug)) {
+			if (!dbgp_reset_prep())
+				ehci->debug = NULL;
+			else
+				dbgp_external_startup();
+		}
+
+		/* Ideally and we've got a real resume here, and no port's power
+		 * was lost.  (For PCI, that means Vaux was maintained.)  But we
+		 * could instead be restoring a swsusp snapshot -- so that BIOS was
+		 * the last user of the controller, not reset/pm hardware keeping
+		 * state we gave to it.
+		 */
+		power_okay = ehci_readl(ehci, &ehci->regs->intr_enable);
+		ehci_dbg(ehci, "resume root hub%s\n",
+				power_okay ? "" : " after power loss");
+
+		/* at least some APM implementations will try to deliver
+		 * IRQs right away, so delay them until we're ready.
+		 */
+		ehci_writel(ehci, 0, &ehci->regs->intr_enable);
+
+		/* re-init operational registers */
+		ehci_writel(ehci, 0, &ehci->regs->segment);
+		ehci_writel(ehci, ehci->periodic_dma, &ehci->regs->frame_list);
+		ehci_writel(ehci, (u32) ehci->async->qh_dma, &ehci->regs->async_next);
+
+		/*CMD_RUN will be set after, PORT_RESUME gets cleared*/
+		if (ehci->resume_sof_bug){
+			temp = ehci_readl(ehci, &ehci->regs->port_status [0]);
+			if (temp & PORT_PE)
+				ehci->command &= ~CMD_RUN;
+		}
+
+		/* restore CMD_RUN, framelist size, and irq threshold */
+		ehci_writel(ehci, ehci->command, &ehci->regs->command);
+		ehci->rh_state = EHCI_RH_RUNNING;
+
+		temp = ehci_readl(ehci, &ehci->regs->port_status [0]);
+		temp &= ~(PORT_RWC_BITS | PORT_WAKE_BITS);
+		if (test_bit(0, &ehci->bus_suspended) &&
+				(temp & PORT_SUSPEND)) {
+			temp |= PORT_RESUME;
+			set_bit(0, &resume_needed);
+		}
+		ehci_writel(ehci, temp, &ehci->regs->port_status [0]);
+
+		if (resume_needed && ehci->resume_sof_bug) {
+
+			spin_unlock_irq(&ehci->lock);
+			msleep(20);
+			spin_lock_irq(&ehci->lock);
+			temp = ehci_readl(ehci, &ehci->regs->port_status [0]);
+			temp &= ~(PORT_RWC_BITS | PORT_RESUME);
+			ehci_writel(ehci, temp, &ehci->regs->port_status [0]);
+
+			ehci_writel(ehci, ehci_readl(ehci,
+					&ehci->regs->command) | CMD_RUN,
+					&ehci->regs->command);
+
+			goto skip_clear_resume;
+
+		}
+
+		/* msleep for 20ms only if code is trying to resume port */
+		if (resume_needed) {
+			spin_unlock_irq(&ehci->lock);
+			msleep(20);
+			spin_lock_irq(&ehci->lock);
+		}
+
+		temp = ehci_readl(ehci, &ehci->regs->port_status [0]);
+		if (test_bit(0, &resume_needed)) {
+			temp &= ~(PORT_RWC_BITS | PORT_RESUME);
+			ehci_writel(ehci, temp, &ehci->regs->port_status [0]);
+			ehci_vdbg (ehci, "resumed port 0\n");
+		}
+
+	skip_clear_resume:
+		(void) ehci_readl(ehci, &ehci->regs->command);
+
+		/* maybe re-activate the schedule(s) */
+		temp = 0;
+		if (ehci->async->qh_next.qh)
+			temp |= CMD_ASE;
+		if (ehci->periodic_sched)
+			temp |= CMD_PSE;
+		if (temp) {
+			ehci->command |= temp;
+			ehci_writel(ehci, ehci->command, &ehci->regs->command);
+		}
+
+		ehci->next_statechange = jiffies + msecs_to_jiffies(5);
+
+		/* Now we can safely re-enable irqs */
+		ehci_writel(ehci, INTR_MASK, &ehci->regs->intr_enable);
+
+		spin_unlock_irq (&ehci->lock);
+		ehci_handover_companion_ports(ehci);
+	}
+
+	if (mhcd->resume_gpio)
+		gpio_direction_output(mhcd->resume_gpio, 0);
+
+	return 0;
+#endif
 }
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static void ehci_reset_resume_check(struct usb_hcd *hcd)
+{
+	char *reset_resume[2]   = {"QMI_STATE=RESET_RESUME", NULL};
+
+	kobject_uevent_env(&hcd->self.controller->kobj, KOBJ_CHANGE,
+					reset_resume);
+}
+#endif
 
 #if defined(CONFIG_DEBUG_FS)
 static u32 addr;
@@ -1200,6 +1408,16 @@ static int ehci_debugfs_init(struct msm_hcd *mhcd)
 }
 #endif
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static void ehci_set_autosuspend_delay(struct usb_device *dev)
+{
+	if (!dev->parent) /* no delay for RH */
+		pm_runtime_set_autosuspend_delay(&dev->dev, 0);
+	else
+		pm_runtime_set_autosuspend_delay(&dev->dev, 4000);
+}
+#endif
+
 static struct hc_driver msm_hc2_driver = {
 	.description		= hcd_name,
 	.product_desc		= "Qualcomm EHCI Host Controller",
@@ -1244,6 +1462,10 @@ static struct hc_driver msm_hc2_driver = {
 	 */
 	.bus_suspend		= ehci_bus_suspend,
 	.bus_resume		= ehci_bus_resume,
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	.set_autosuspend_delay	= ehci_set_autosuspend_delay,
+	.reset_resume_handler	= ehci_reset_resume_check,
+#endif
 };
 
 static irqreturn_t msm_hsusb_wakeup_irq(int irq, void *data)
@@ -1373,7 +1595,14 @@ struct msm_usb_host_platform_data *ehci_msm2_dt_to_pdata(
 		pdata->resume_gpio = 0;
 	pdata->is_uicc = of_property_read_bool(node,
 					"qcom,usb2-enable-uicc");
-
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	of_property_read_u32(node, "qcom,usb2-bus-num",
+					&pdata->fixed_bus_num);
+	pdata->phy_sof_workaround = of_property_read_bool(node,
+					"qcom,phy-sof-workaround");
+	pdata->sw_fpr_ctrl = of_property_read_bool(node,
+					"qcom,sw-fpr-control");
+#endif
 	return pdata;
 }
 
@@ -1388,6 +1617,12 @@ static int __devinit ehci_msm2_probe(struct platform_device *pdev)
 	int ret;
 
 	dev_dbg(&pdev->dev, "ehci_msm2 probe\n");
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	/* If there is no WAN device present, we don't need to start the EHCI stack */
+	if(!wan_present())
+		return -ENODEV;
+#endif
 
 	/*
 	 * Fail probe in case of uicc till userspace activates driver through
@@ -1551,6 +1786,17 @@ static int __devinit ehci_msm2_probe(struct platform_device *pdev)
 		goto vbus_deinit;
 	}
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if( pdata && pdata->phy_sof_workaround) {
+		/* defer bus suspend until RH suspend */
+		mhcd->ehci.susp_sof_bug = 1;
+		mhcd->ehci.resume_sof_bug = 1;
+	}
+
+	if (pdata && pdata->fixed_bus_num)
+		hcd->fixed_bus_num = pdata->fixed_bus_num;
+#endif
+
 	ret = usb_add_hcd(hcd, hcd->irq, IRQF_SHARED);
 	if (ret) {
 		dev_err(&pdev->dev, "unable to register HCD\n");
@@ -1656,6 +1902,16 @@ static int __devexit ehci_msm2_remove(struct platform_device *pdev)
 	struct usb_hcd *hcd = platform_get_drvdata(pdev);
 	struct msm_hcd *mhcd = hcd_to_mhcd(hcd);
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	msm_ehci_resume(mhcd);
+	if (pdev->dev.power.power_state.event != PM_EVENT_INVALID)
+		pm_runtime_disable(&pdev->dev);
+
+	device_init_wakeup(&pdev->dev, 0);
+	pm_runtime_set_suspended(&pdev->dev);
+
+#endif
+
 	if (mhcd->pmic_gpio_dp_irq) {
 		if (mhcd->pmic_gpio_dp_irq_enabled)
 			disable_irq_wake(mhcd->pmic_gpio_dp_irq);
@@ -1676,12 +1932,14 @@ static int __devexit ehci_msm2_remove(struct platform_device *pdev)
 	if (mhcd->resume_gpio)
 		gpio_free(mhcd->resume_gpio);
 
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	/* If the device was removed no need to call pm_runtime_disable */
 	if (pdev->dev.power.power_state.event != PM_EVENT_INVALID)
 		pm_runtime_disable(&pdev->dev);
 
 	device_init_wakeup(&pdev->dev, 0);
 	pm_runtime_set_suspended(&pdev->dev);
+#endif
 
 	usb_remove_hcd(hcd);
 
@@ -1716,7 +1974,12 @@ static int ehci_msm2_pm_suspend(struct device *dev)
 
 	dev_dbg(dev, "ehci-msm2 PM suspend\n");
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if (device_may_wakeup(dev) && !mhcd->async_irq && !mhcd->wakeup_irq &&
+						!mhcd->pmic_gpio_dp_irq)
+#else
 	if (device_may_wakeup(dev))
+#endif
 		enable_irq_wake(hcd->irq);
 
 	return msm_ehci_suspend(mhcd);
@@ -1731,8 +1994,20 @@ static int ehci_msm2_pm_resume(struct device *dev)
 
 	dev_dbg(dev, "ehci-msm2 PM resume\n");
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if (device_may_wakeup(dev) && !mhcd->async_irq && !mhcd->wakeup_irq &&
+						!mhcd->pmic_gpio_dp_irq)
+#else
 	if (device_may_wakeup(dev))
+#endif
 		disable_irq_wake(hcd->irq);
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	if (!atomic_read(&mhcd->pm_usage_cnt) &&
+		!atomic_read(&mhcd->async_int) &&
+		pm_runtime_suspended(dev))
+		return 0;
+#endif
 
 	ret = msm_ehci_resume(mhcd);
 	if (ret)
