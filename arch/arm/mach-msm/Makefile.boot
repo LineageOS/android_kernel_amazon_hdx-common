@@ -47,6 +47,16 @@ endif
 
 # MSM8974
    zreladdr-$(CONFIG_ARCH_MSM8974)	:= 0x00008000
+ifeq ($(CONFIG_ARCH_MSM8974_THOR),y)
+        dtb-$(CONFIG_ARCH_MSM8974)	+= thor-v1.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= thor-v2.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= thor-v2-apq.dtb
+else
+ifeq ($(CONFIG_ARCH_MSM8974_APOLLO),y)
+        dtb-$(CONFIG_ARCH_MSM8974)	+= apollo-v1.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= apollo-v2.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= apollo-apq.dtb
+else
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v1-cdp.dtb
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v1-fluid.dtb
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974-v1-liquid.dtb
@@ -76,6 +86,8 @@ endif
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pm8941-liquid.dtb
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pm8941-mtp.dtb
         dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pma8084-pm8941-mtp.dtb
+endif
+endif
 
 # APQ8084
    zreladdr-$(CONFIG_ARCH_APQ8084)	:= 0x00008000
