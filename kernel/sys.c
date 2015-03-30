@@ -401,8 +401,20 @@ void kernel_restart(char *cmd)
 }
 EXPORT_SYMBOL_GPL(kernel_restart);
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+#include <linux/power_supply.h>
+#endif
+
 static void kernel_shutdown_prepare(enum system_states state)
 {
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	/* Restart to charge mode instead of halt because of QC PMIC bug */
+	if (power_supply_is_system_supplied()) {
+		kernel_restart("oem-1");
+		return;
+	}
+#endif
+
 	blocking_notifier_call_chain(&reboot_notifier_list,
 		(state == SYSTEM_HALT)?SYS_HALT:SYS_POWER_OFF, NULL);
 	system_state = state;
