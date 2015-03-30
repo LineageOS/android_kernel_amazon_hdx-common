@@ -33,6 +33,9 @@
 #include "qdsp6v2/msm-pcm-routing-v2.h"
 #include "../codecs/wcd9xxx-common.h"
 #include "../codecs/wcd9320.h"
+#ifdef CONFIG_SND_SOC_MAX97236
+#include "../codecs/max97236.h"
+#endif
 
 #define DRV_NAME "msm8974-asoc-taiko"
 
@@ -110,6 +113,7 @@ static const struct soc_enum msm8974_auxpcm_enum[] = {
 		SOC_ENUM_SINGLE_EXT(2, auxpcm_rate_text),
 };
 
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 void *def_taiko_mbhc_cal(void);
 static int msm_snd_enable_codec_ext_clk(struct snd_soc_codec *codec, int enable,
 					bool dapm);
@@ -137,6 +141,7 @@ static struct wcd9xxx_mbhc_config mbhc_cfg = {
 	.enable_anc_mic_detect = false,
 	.hw_jack_type = SIX_POLE_JACK,
 };
+#endif
 
 struct msm_auxpcm_gpio {
 	unsigned gpio_no;
@@ -154,6 +159,10 @@ struct msm8974_asoc_mach_data {
 	u32 mclk_freq;
 	int us_euro_gpio;
 	struct msm_auxpcm_ctrl *pri_auxpcm_ctrl;
+#ifdef CONFIG_SND_SOC_MAX97236
+	int mclk_gpio_max97236;
+	u32 mclk_freq_max97236;
+#endif
 	struct msm_auxpcm_ctrl *sec_auxpcm_ctrl;
 };
 
@@ -196,6 +205,9 @@ enum {
 
 static struct platform_device *spdev;
 static struct regulator *ext_spk_amp_regulator;
+#if defined(CONFIG_SND_SOC_MSM8974_THOR)
+static struct regulator *ext_spk_amp_boost;
+#endif
 static int ext_spk_amp_gpio = -1;
 static int ext_ult_spk_amp_gpio = -1;
 static int ext_ult_lo_amp_gpio = -1;
@@ -214,9 +226,28 @@ static int hdmi_rx_sample_rate = SAMPLING_RATE_48KHZ;
 static struct mutex cdc_mclk_mutex;
 static struct clk *codec_clk;
 static int clk_users;
+#ifdef CONFIG_SND_SOC_MAX97236
+static struct q_clkdiv *codec_clk_max97236;
+#endif
 static atomic_t prim_auxpcm_rsc_ref;
 static atomic_t sec_auxpcm_rsc_ref;
 
+#if defined(CONFIG_SND_SOC_MSM8974_THOR)
+static inline bool __init is_board_thor_DVT(void)
+{
+	struct device_node *ap;
+	int len;
+
+	ap = of_find_node_by_path("/idme/board_id");
+	 if (ap) {
+			const char *boardid = of_get_property(ap, "value", &len);
+			if (len >= 3)
+				 if ((boardid[0] == '0' && boardid[1] == 'c' && boardid[2] == '0') && (boardid[3] == '3' || boardid[3] == '4'))
+					return true;
+	}
+	return false;
+}
+#endif
 
 static int msm8974_liquid_ext_spk_power_amp_init(void)
 {
@@ -233,6 +264,7 @@ static int msm8974_liquid_ext_spk_power_amp_init(void)
 		}
 		gpio_direction_output(ext_spk_amp_gpio, 0);
 
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 		if (ext_spk_amp_regulator == NULL) {
 			ext_spk_amp_regulator = regulator_get(&spdev->dev,
 									"qcom,ext-spk-amp");
@@ -245,6 +277,33 @@ static int msm8974_liquid_ext_spk_power_amp_init(void)
 				return PTR_ERR(ext_spk_amp_regulator);
 			}
 		}
+#elif defined(CONFIG_SND_SOC_MSM8974_THOR)
+		/* Enable audio boost only for DVT and PVT devices */
+		if (is_board_thor_DVT()) {
+			if (ext_spk_amp_boost == NULL) {
+				ext_spk_amp_boost = regulator_get(&spdev->dev,
+					"qcom,ext-spk-amp-boost");
+
+				if (IS_ERR(ext_spk_amp_boost)) {
+					pr_err("%s: Cannot get boost %s.\n",
+						__func__, "qcom,ext-spk-amp-boost");
+					ext_spk_amp_boost = NULL;
+		                } else {
+					ret = regulator_set_voltage(ext_spk_amp_boost, 4500000, 5000000);
+					if (ret) {
+						pr_err("%s: Setting regulator voltage failed for "
+							"regulator err = %d\n", __func__, ret);
+					}
+
+					ret = regulator_enable(ext_spk_amp_boost);
+					if (ret) {
+						pr_err("%s: Enabling regulator voltage failed for "
+							"regulator err = %d\n", __func__, ret);
+					}
+				}
+			}
+		}
+#endif
 	}
 
 	ext_ult_spk_amp_gpio = of_get_named_gpio(spdev->dev.of_node,
@@ -289,6 +348,9 @@ static void msm8974_liquid_ext_ult_spk_power_amp_enable(u32 on)
 static void msm8974_liquid_ext_spk_power_amp_enable(u32 on)
 {
 	if (on) {
+#if defined(CONFIG_SND_SOC_MSM8974_THOR) || defined(CONFIG_SND_SOC_MSM8974_APOLLO)
+		if (ext_spk_amp_regulator)
+#endif
 		if (regulator_enable(ext_spk_amp_regulator))
 			pr_err("%s: enable failed ext_spk_amp_reg\n",
 				__func__);
@@ -298,6 +360,9 @@ static void msm8974_liquid_ext_spk_power_amp_enable(u32 on)
 			     EXT_CLASS_D_EN_DELAY + EXT_CLASS_D_DELAY_DELTA);
 	} else {
 		gpio_direction_output(ext_spk_amp_gpio, on);
+#if defined(CONFIG_SND_SOC_MSM8974_THOR) || defined(CONFIG_SND_SOC_MSM8974_APOLLO)
+		if (ext_spk_amp_regulator)
+#endif
 		regulator_disable(ext_spk_amp_regulator);
 		/*time takes disable the external power amplifier*/
 		usleep_range(EXT_CLASS_D_DIS_DELAY,
@@ -413,13 +478,24 @@ static int msm8974_liquid_ext_spk_power_amp_on(u32 spk)
 			 __func__, spk);
 
 		msm8974_ext_spk_pamp |= spk;
+#if defined(CONFIG_SND_SOC_MSM8974_THOR) || defined(CONFIG_SND_SOC_MSM8974_APOLLO)
+		if (((msm8974_ext_spk_pamp & LO_1_SPK_AMP) &&
+		    (msm8974_ext_spk_pamp & LO_3_SPK_AMP)) ||
+		    ((msm8974_ext_spk_pamp & LO_2_SPK_AMP) &&
+		    (msm8974_ext_spk_pamp & LO_4_SPK_AMP)))
+#else
 		if ((msm8974_ext_spk_pamp & LO_1_SPK_AMP) &&
 		    (msm8974_ext_spk_pamp & LO_3_SPK_AMP) &&
 		    (msm8974_ext_spk_pamp & LO_2_SPK_AMP) &&
 		    (msm8974_ext_spk_pamp & LO_4_SPK_AMP))
+#endif
 			if (ext_spk_amp_gpio >= 0 &&
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 			    msm8974_liquid_dock_dev &&
 			    msm8974_liquid_dock_dev->dock_plug_det == 0)
+#else
+				1)
+#endif
 				msm8974_liquid_ext_spk_power_amp_enable(1);
 		rc = 0;
 	} else  {
@@ -490,8 +566,12 @@ static void msm8974_liquid_ext_spk_power_amp_off(u32 spk)
 		msm8974_ext_spk_pamp &= ~spk;
 		if (!msm8974_ext_spk_pamp) {
 			if (ext_spk_amp_gpio >= 0 &&
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 				msm8974_liquid_dock_dev != NULL &&
 				msm8974_liquid_dock_dev->dock_plug_det == 0)
+#else
+				1)
+#endif
 				msm8974_liquid_ext_spk_power_amp_enable(0);
 		}
 
@@ -684,6 +764,35 @@ static int msm8974_mclk_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+#ifdef CONFIG_SND_SOC_MAX97236
+static int msm_snd_enable_max97236_ext_clk(struct snd_soc_codec *codec)
+{
+	int ret = 0;
+
+	if (!codec) {
+		dev_err(codec->dev, "%s: did not get MAX97236 MCLK\n",
+			__func__);
+		return -EPROBE_DEFER;
+	}
+
+	if (!codec_clk_max97236) {
+		return -EPROBE_DEFER;
+		}
+
+	ret = qpnp_clkdiv_enable(codec_clk_max97236);
+
+	if (ret) {
+		dev_err(codec->dev, "%s: Error enabling max97236 extclk\n",
+		       __func__);
+		return ret;
+	} else {
+		dev_err(codec->dev, "%s: Enabling max97236 extclk\n",
+		       __func__);
+	}
+	return ret;
+}
+#endif
+
 static const struct snd_soc_dapm_widget msm8974_dapm_widgets[] = {
 
 	SND_SOC_DAPM_SUPPLY("MCLK",  SND_SOC_NOPM, 0, 0,
@@ -711,6 +820,10 @@ static const struct snd_soc_dapm_widget msm8974_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("Digital Mic4", NULL),
 	SND_SOC_DAPM_MIC("Digital Mic5", NULL),
 	SND_SOC_DAPM_MIC("Digital Mic6", NULL),
+
+#ifdef CONFIG_SND_SOC_MAX97236
+	SND_SOC_DAPM_HP("Headphone", NULL),
+#endif
 };
 
 static const char *const spk_function[] = {"Off", "On"};
@@ -1433,6 +1546,7 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 			hdmi_rx_sample_rate_get, hdmi_rx_sample_rate_put),
 };
 
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 static bool msm8974_swap_gnd_mic(struct snd_soc_codec *codec)
 {
 	struct snd_soc_card *card = codec->card;
@@ -1442,6 +1556,7 @@ static bool msm8974_swap_gnd_mic(struct snd_soc_codec *codec)
 	gpio_set_value_cansleep(pdata->us_euro_gpio, !value);
 	return true;
 }
+#endif
 
 static int msm_afe_set_config(struct snd_soc_codec *codec)
 {
@@ -1632,6 +1747,7 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 			return err;
 		}
 	}
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 	/* start mbhc */
 	mbhc_cfg.calibration = def_taiko_mbhc_cal();
 	if (mbhc_cfg.calibration) {
@@ -1642,6 +1758,7 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		err = -ENOMEM;
 		goto out;
 	}
+#endif
 	adsp_state_notifier =
 	    subsys_notif_register_notifier("adsp",
 					   &adsp_state_notifier_block);
@@ -1667,6 +1784,7 @@ static int msm8974_snd_startup(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 void *def_taiko_mbhc_cal(void)
 {
 	void *taiko_cal;
@@ -1744,6 +1862,7 @@ void *def_taiko_mbhc_cal(void)
 
 	return taiko_cal;
 }
+#endif
 
 static int msm_snd_hw_params(struct snd_pcm_substream *substream,
 			     struct snd_pcm_hw_params *params)
@@ -2719,6 +2838,28 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ignore_suspend = 1,
 	},
+#ifdef CONFIG_SND_SOC_MAX97236
+	{
+		.name = "Max97236 playback",
+		.stream_name = "HiFiPlayback",
+		.cpu_dai_name = "msm-dai-q6-dev.16384",
+		.platform_name = "msm-pcm-routing",
+		.codec_dai_name = "HiFi",
+		.codec_name = "max97236.12-0040",
+		.ops = NULL,
+		.init = NULL,
+	},
+	{
+		.name = "Max97236 Capture",
+		.stream_name = "HiFiCapture",
+		.cpu_dai_name = "msm-dai-q6-dev.16385",
+		.platform_name = "msm-pcm-routing",
+		.codec_dai_name = "HiFi",
+		.codec_name = "max97236.12-0040",
+		.ops = NULL,
+		.init = NULL,
+	},
+#endif
 	/* Incall Music 2 BACK END DAI Link */
 	{
 		.name = LPASS_BE_VOICE2_PLAYBACK_TX,
@@ -2754,6 +2895,30 @@ static struct snd_soc_dai_link msm8974_hdmi_dai_link[] = {
 static struct snd_soc_dai_link msm8974_dai_links[
 					 ARRAY_SIZE(msm8974_common_dai_links) +
 					 ARRAY_SIZE(msm8974_hdmi_dai_link)];
+
+#ifdef CONFIG_SND_SOC_MAX97236
+static int msm8974_asoc_machine_late_probe(struct snd_soc_card *card)
+{
+	int ret;
+	struct snd_soc_codec *codec = NULL, *codec_max97236 = NULL;
+	int i = 0;
+
+	for (i = 0; i < card->num_rtd; i++) {
+	   codec = card->rtd[i].codec;
+	   if (!strcmp(codec->name, "max97236.12-0040")) {
+	      codec_max97236 = codec;
+	      break;
+	   }
+	}
+
+	ret = msm_snd_enable_max97236_ext_clk(codec);
+
+	if (ret == -EPROBE_DEFER)
+		return -EPROBE_DEFER;
+
+	return 0;
+}
+#endif
 
 struct snd_soc_card snd_soc_card_msm8974 = {
 	.name		= "msm8974-taiko-snd-card",
@@ -2840,6 +3005,51 @@ static int msm8974_prepare_codec_mclk(struct snd_soc_card *card)
 	return 0;
 }
 
+#ifdef CONFIG_SND_SOC_MAX97236
+static int msm8974_prepare_max97236_extclk(struct snd_soc_card *card)
+{
+	struct msm8974_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+	int ret;
+
+	ret = of_property_read_u32(card->dev->of_node,
+			"maxim,max97236-extclk-freq", &pdata->mclk_freq_max97236);
+	if (ret) {
+		dev_err(card->dev, "Looking up %s property in node %s failed",
+			"maxim,max97236-extclk-freq",
+			card->dev->of_node->full_name);
+		return ret;
+	}
+
+	pdata->mclk_gpio_max97236 = of_get_named_gpio(card->dev->of_node,
+				"maxim,max97236-extclk-gpios", 0);
+	if (pdata->mclk_gpio_max97236 < 0) {
+
+		dev_err(card->dev,
+			"Looking up %s property in node %s failed %d\n",
+			"maxim,max97236-extclk-gpios", card->dev->of_node->full_name,
+			pdata->mclk_gpio_max97236);
+		return -ENODEV;
+	}
+
+	if (pdata->mclk_gpio_max97236) {
+		ret = gpio_request(pdata->mclk_gpio_max97236, "MAX97236_PMIC_EXTCLK");
+		if (ret) {
+			dev_err(card->dev,
+				"%s: Failed to request max97236 extclk gpio %d\n",
+				__func__, pdata->mclk_gpio_max97236);
+		}
+	}
+	codec_clk_max97236 = qpnp_clkdiv_get(card->dev, "max97236-extclk");
+        if (IS_ERR(codec_clk_max97236)) {
+                dev_err(card->dev,
+                        "%s: Failed to request max97236 mclk from pmic %ld\n",
+                        __func__, PTR_ERR(codec_clk_max97236));
+                return -ENODEV ;
+        }
+	return 0;
+}
+#endif
+
 static int msm8974_prepare_us_euro(struct snd_soc_card *card)
 {
 	struct msm8974_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
@@ -2866,8 +3076,10 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 	int ret;
 	const char *auxpcm_pri_gpio_set = NULL;
 	const char *prop_name_ult_lo_gpio = "qcom,ext-ult-lo-amp-gpio";
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 	const char *mbhc_audio_jack_type = NULL;
 	size_t n = strlen("4-pole-jack");
+#endif
 	struct resource	*pri_muxsel;
 	struct resource	*sec_muxsel;
 
@@ -2927,6 +3139,7 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 	if (ret)
 		goto err;
 
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 	ret = of_property_read_string(pdev->dev.of_node,
 		"qcom,mbhc-audio-jack-type", &mbhc_audio_jack_type);
 	if (ret) {
@@ -2955,6 +3168,7 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 			dev_dbg(&pdev->dev, "Unknown value, hence setting to default");
 		}
 	}
+#endif
 	if (of_property_read_bool(pdev->dev.of_node, "qcom,hdmi-audio-rx")) {
 		dev_info(&pdev->dev, "%s(): hdmi audio support present\n",
 				__func__);
@@ -3025,6 +3239,13 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 		}
 	}
 
+#ifdef CONFIG_SND_SOC_MAX97236
+	ret = msm8974_prepare_max97236_extclk(card);
+	if (ret)
+		goto err;
+	msm8974_asoc_machine_late_probe(card);
+#endif
+
 	pdata->us_euro_gpio = of_get_named_gpio(pdev->dev.of_node,
 				"qcom,us-euro-gpios", 0);
 	if (pdata->us_euro_gpio < 0) {
@@ -3034,13 +3255,19 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 	} else {
 		dev_dbg(&pdev->dev, "%s detected %d",
 			"qcom,us-euro-gpios", pdata->us_euro_gpio);
+#if !defined(CONFIG_SND_SOC_MSM8974_THOR) && !defined(CONFIG_SND_SOC_MSM8974_APOLLO)
 		mbhc_cfg.swap_gnd_mic = msm8974_swap_gnd_mic;
+#endif
 	}
 
 	ret = msm8974_prepare_us_euro(card);
 	if (ret)
 		dev_err(&pdev->dev, "msm8974_prepare_us_euro failed (%d)\n",
 			ret);
+
+#if defined(CONFIG_SND_SOC_MSM8974_THOR)
+	ext_spk_amp_boost = NULL;
+#endif
 
 	ret = of_property_read_string(pdev->dev.of_node,
 			"qcom,prim-auxpcm-gpio-set", &auxpcm_pri_gpio_set);
@@ -3124,6 +3351,13 @@ static int __devexit msm8974_asoc_machine_remove(struct platform_device *pdev)
 	if (ext_spk_amp_regulator)
 		regulator_put(ext_spk_amp_regulator);
 
+#if defined(CONFIG_SND_SOC_MSM8974_THOR)
+	if (ext_spk_amp_boost) {
+		regulator_disable(ext_spk_amp_boost);
+		regulator_put(ext_spk_amp_boost);
+	}
+#endif
+
 	if (gpio_is_valid(ext_ult_spk_amp_gpio))
 		gpio_free(ext_ult_spk_amp_gpio);
 
@@ -3131,6 +3365,9 @@ static int __devexit msm8974_asoc_machine_remove(struct platform_device *pdev)
 		gpio_free(ext_ult_lo_amp_gpio);
 
 	gpio_free(pdata->mclk_gpio);
+#ifdef CONFIG_SND_SOC_MAX97236
+	gpio_free(pdata->mclk_gpio_max97236);
+#endif
 	gpio_free(pdata->us_euro_gpio);
 	if (gpio_is_valid(ext_spk_amp_gpio))
 		gpio_free(ext_spk_amp_gpio);
