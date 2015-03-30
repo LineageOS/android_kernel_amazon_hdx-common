@@ -21,12 +21,20 @@
 #include <linux/leds.h>
 #include <linux/qpnp/pwm.h>
 #include <linux/err.h>
+#ifdef CONFIG_BACKLIGHT_LP855X_AMZ
+#include <linux/lp855x.h>
+#endif
 
 #include "mdss_dsi.h"
 
 #define DT_CMD_HDR 6
 
 #define MIN_REFRESH_RATE 30
+
+#ifdef CONFIG_BACKLIGHT_LP855X_AMZ
+extern wait_queue_head_t panel_on_waitqueue;
+extern int lcd_panel_enabled;
+#endif
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
 
@@ -169,7 +177,7 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
-static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int rc = 0;
 
@@ -188,6 +196,7 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 			rc);
 		goto rst_gpio_err;
 	}
+#ifndef CONFIG_ARCH_MSM8974_APOLLO
 	if (gpio_is_valid(ctrl_pdata->mode_gpio)) {
 		rc = gpio_request(ctrl_pdata->mode_gpio, "panel_mode");
 		if (rc) {
@@ -196,10 +205,34 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 			goto mode_gpio_err;
 		}
 	}
+#else
+	if (gpio_is_valid(ctrl_pdata->disp_lcd_en_gpio)) {
+		rc = gpio_request(ctrl_pdata->disp_lcd_en_gpio, "disp_lcd_enable");
+		if (rc) {
+			pr_err("request power enable gpio failed, rc=%d\n", rc);
+			goto lcd_en_gpio_err;
+		}
+	}
+	pr_info("request lcd enable gpio ok, = %d \n", ctrl_pdata->disp_lcd_en_gpio);
+
+	rc = gpio_request(ctrl_pdata->mbist_gpio, "lcd_mbist");
+	if (rc) {
+		pr_err("request lcd mbist gpio failed, rc=%d\n", rc);
+		return -ENODEV;
+	}
+	pr_info("request lcd mbist gpio ok, = %d \n", ctrl_pdata->mbist_gpio);
+#endif
 	return rc;
 
+#ifndef CONFIG_ARCH_MSM8974_APOLLO
 mode_gpio_err:
-	gpio_free(ctrl_pdata->rst_gpio);
+	if (gpio_is_valid(ctrl_pdata->rst_gpio))
+		gpio_free(ctrl_pdata->rst_gpio);
+#else
+lcd_en_gpio_err:
+#endif
+	if (gpio_is_valid(ctrl_pdata->mode_gpio))
+		gpio_free(ctrl_pdata->mode_gpio);
 rst_gpio_err:
 	if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
 		gpio_free(ctrl_pdata->disp_en_gpio);
@@ -232,18 +265,54 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 		return rc;
 	}
 
+#if defined(CONFIG_ARCH_MSM8974_APOLLO)
+        if (!gpio_is_valid(ctrl_pdata->disp_lcd_en_gpio)) {
+                pr_debug("%s:%d, lcd en not configured\n",
+                           __func__, __LINE__);
+                return rc;
+        }
+
+        if (!gpio_is_valid(ctrl_pdata->mbist_gpio)) {
+                pr_debug("%s:%d, mbist line not configured\n",
+                           __func__, __LINE__);
+                return rc;
+        }
+#endif
+
 	pr_debug("%s: enable = %d\n", __func__, enable);
 	pinfo = &(ctrl_pdata->panel_data.panel_info);
 
 	if (enable) {
+#if defined(CONFIG_ARCH_MSM8974_APOLLO)
+		gpio_set_value((ctrl_pdata->rst_gpio), 0);
+		udelay(200);
+		wmb();
+		gpio_set_value((ctrl_pdata->mbist_gpio), 0);
+		udelay(200);
+		wmb();
+		gpio_set_value((ctrl_pdata->disp_en_gpio), 1);
+		udelay(1200);
+		wmb();
+		gpio_set_value((ctrl_pdata->disp_lcd_en_gpio), 1);
+		msleep(15); //udelay(15000);
+		wmb();
+		gpio_set_value((ctrl_pdata->rst_gpio), 1);
+		msleep(10); //udelay(10000);
+		wmb();
+#elif !defined(CONFIG_ARCH_MSM8974_THOR)
 		rc = mdss_dsi_request_gpios(ctrl_pdata);
 		if (rc) {
 			pr_err("gpio request failed\n");
 			return rc;
 		}
+#endif
 		if (!pinfo->panel_power_on) {
 			if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
 				gpio_set_value((ctrl_pdata->disp_en_gpio), 1);
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+			wmb();
+#endif
 
 			for (i = 0; i < pdata->panel_info.rst_seq_len; ++i) {
 				gpio_set_value((ctrl_pdata->rst_gpio),
@@ -265,15 +334,50 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			ctrl_pdata->ctrl_state &= ~CTRL_STATE_PANEL_INIT;
 			pr_debug("%s: Reset panel done\n", __func__);
 		}
+#ifdef CONFIG_BACKLIGHT_LP855X_AMZ
+		pr_debug("Panel enabled\n");
+		msleep(30); /* extra time needed for panel to get ready */
+#if defined(CONFIG_ARCH_MSM8974_THOR)
+		msleep(70); /* Thor PLD panel needs 100ms total: */
+		/* 69ms typ for TCON reset only +
+		   10-20ms SPI flash + 10-20ms before MIPI signals.*/
+#endif
+		lcd_panel_enabled = 1;
+		wmb();
+		wake_up(&panel_on_waitqueue);
+#endif
 	} else {
+#if defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (gpio_is_valid(ctrl_pdata->disp_lcd_en_gpio)) {
+			gpio_set_value((ctrl_pdata->disp_lcd_en_gpio), 0);
+			msleep(20);
+			wmb();
+		}
+		if (gpio_is_valid(ctrl_pdata->mbist_gpio)) {
+			gpio_set_value((ctrl_pdata->mbist_gpio), 0);
+			usleep(200);
+			wmb();
+		}
+#endif
+#if defined(CONFIG_ARCH_MSM8974_APOLLO) || defined(CONFIG_ARCH_MSM8974_THOR)
+		lcd_panel_enabled = 0;
+#endif
 		if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
 			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
+#if !defined(CONFIG_ARCH_MSM8974_APOLLO) && !defined(CONFIG_ARCH_MSM8974_THOR)
 			gpio_free(ctrl_pdata->disp_en_gpio);
+#endif
 		}
-		gpio_set_value((ctrl_pdata->rst_gpio), 0);
-		gpio_free(ctrl_pdata->rst_gpio);
+		if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
+			gpio_set_value((ctrl_pdata->rst_gpio), 0);
+#if !defined(CONFIG_ARCH_MSM8974_APOLLO) && !defined(CONFIG_ARCH_MSM8974_THOR)
+			gpio_free(ctrl_pdata->rst_gpio);
+#endif
+		}
+#if !defined(CONFIG_ARCH_MSM8974_APOLLO) && !defined(CONFIG_ARCH_MSM8974_THOR)
 		if (gpio_is_valid(ctrl_pdata->mode_gpio))
 			gpio_free(ctrl_pdata->mode_gpio);
+#endif
 	}
 	return rc;
 }
@@ -388,6 +492,9 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 	switch (ctrl_pdata->bklt_ctrl) {
 	case BL_WLED:
 		led_trigger_event(bl_led_trigger, bl_level);
+#ifdef CONFIG_BACKLIGHT_LP855X_AMZ
+                lp855x_bl_set(bl_level);
+#endif
 		break;
 	case BL_PWM:
 		mdss_dsi_panel_bklt_pwm(ctrl_pdata, bl_level);
@@ -411,6 +518,41 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 		break;
 	}
 }
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static int mdss_dsi_panel_psr_ctrl(struct mdss_panel_data *pdata,
+				   int enable)
+{
+	struct mipi_panel_info *mipi;
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+
+	if (pdata == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+	mipi  = &pdata->panel_info.mipi;
+
+	pr_debug("%s:%d, debug info (mode) : %d\n", __func__, __LINE__,
+		 mipi->mode);
+
+	if (mipi->panel_psr_mode == false) {
+		pr_err("%s:%d, PSR mode not supported", __func__, __LINE__);
+		return 0;
+	}
+	if (enable) {
+		if (ctrl_pdata->psr_on_cmds.cmd_cnt)
+			mdss_dsi_panel_cmds_send(ctrl_pdata, &ctrl_pdata->psr_on_cmds);
+	} else {
+		if (ctrl_pdata->psr_off_cmds.cmd_cnt)
+			mdss_dsi_panel_cmds_send(ctrl_pdata, &ctrl_pdata->psr_off_cmds);
+	}
+
+	return 0;
+}
+#endif
 
 static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 {
@@ -950,6 +1092,9 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	const char *data;
 	static const char *pdest;
 	struct mdss_panel_info *pinfo = &(ctrl_pdata->panel_data.panel_info);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	bool psr = false;
+#endif
 
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-panel-width", &tmp);
 	if (rc) {
@@ -1244,6 +1389,21 @@ static int mdss_panel_parse_dt(struct device_node *np,
 			ctrl_pdata->status_mode = ESD_REG;
 	}
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	psr = of_property_read_bool(np, "qcom,mdss-pan-psr-mode");
+	if (psr) {
+		pr_info("%s:%d, Configuring psr mode", __func__, __LINE__);
+
+		pinfo->mipi.panel_psr_mode = true;
+
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->psr_on_cmds,
+			"qcom,panel-psr-on-cmds", "qcom,psr-on-cmds-dsi-state");
+
+		mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->psr_off_cmds,
+			"qcom,panel-psr-off-cmds", "qcom,psr-off-cmds-dsi-state");
+	}
+#endif
+
 	rc = mdss_dsi_parse_panel_features(np, ctrl_pdata);
 	if (rc) {
 		pr_err("%s: failed to parse panel features\n", __func__);
@@ -1299,6 +1459,9 @@ int mdss_dsi_panel_init(struct device_node *node,
 	ctrl_pdata->off = mdss_dsi_panel_off;
 	ctrl_pdata->panel_data.set_backlight = mdss_dsi_panel_bl_ctrl;
 	ctrl_pdata->switch_mode = mdss_dsi_panel_switch_mode;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	ctrl_pdata->psr_ctrl = mdss_dsi_panel_psr_ctrl;
+#endif
 
 	return 0;
 }
