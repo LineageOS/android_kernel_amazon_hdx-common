@@ -669,6 +669,12 @@ config INPUT_AD7146
 
           To compile this driver as a module, choose M here.
 
+config INPUT_BU52061_HALLSENSOR
+        bool "Rohm BU52061NVX hall sensor"
+	depends on I2C
+        help
+          Say Y here if you want to use hall sensor Rohm BU52061NVX.
+
 config BMP18X
        tristate "BMP18X digital pressure sensor"
        depends on (I2C ) && SYSFS
