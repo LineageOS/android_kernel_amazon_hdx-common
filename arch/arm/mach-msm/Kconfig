@@ -3049,6 +3049,13 @@ config KRAIT_REGULATOR
 	 line from the PMIC. This supply line is powered by multiple
 	 regulators running in ganged mode inside the PMIC. Enable
 	 this option to support such configurations.
+
+config AMZN_RAM_CONSOLE
+       bool "Amazon Android RAM buffer console"
+       depends on ANDROID_RAM_CONSOLE
+       depends on ARCH_MSM8974_THOR || ARCH_MSM8974_APOLLO
+       help
+        Enable the last_kmsg support for amazon device.
 endif
 
 config KERNEL_TEXT_MPU_PROT
