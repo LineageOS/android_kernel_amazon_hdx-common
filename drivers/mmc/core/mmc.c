@@ -25,6 +25,12 @@
 #include "mmc_ops.h"
 #include "sd_ops.h"
 
+#define TOSHIBA_MANF_ID	0x11
+#define SAMSUNG_MANF_ID	0x15
+#define SANDISK_MANF_ID	0x45
+#define HYNIX_MANF_ID		0x90
+#define MICRON_MANF_ID		0xFE
+
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
 	0,		0,		0,		0
@@ -127,6 +133,12 @@ static int mmc_decode_cid(struct mmc_card *card)
 		card->cid.serial	= UNSTUFF_BITS(resp, 16, 32);
 		card->cid.month		= UNSTUFF_BITS(resp, 12, 4);
 		card->cid.year		= UNSTUFF_BITS(resp, 8, 4) + 1997;
+		/* MMC v4 above only has product revision defined, which is
+		 * not in the mmc_cid data structure, to remain BC, let's
+		 * just use hwrev for the upper 4 bit of prod rev, and fwrev
+		 * for the lower 4 bit of prod rev */
+		card->cid.hwrev		= UNSTUFF_BITS(resp, 52, 4);
+		card->cid.fwrev		= UNSTUFF_BITS(resp, 48, 4);
 		break;
 
 	default:
@@ -200,6 +212,33 @@ static int mmc_decode_csd(struct mmc_card *card)
 	}
 
 	return 0;
+}
+
+char *mmc_decode_manf_id(struct mmc_card *card)
+{
+	u32 manufacturer_id;
+
+	manufacturer_id = UNSTUFF_BITS(card->raw_cid, 104, 24);
+	manufacturer_id = (manufacturer_id >> 16);
+
+	switch (manufacturer_id) {
+	case TOSHIBA_MANF_ID:
+		return "Toshiba";
+
+	case SAMSUNG_MANF_ID:
+		return "Samsung";
+
+	case HYNIX_MANF_ID:
+		return "Hynix";
+
+	case MICRON_MANF_ID:
+		return "Micron";
+
+	case SANDISK_MANF_ID:
+		return "Sandisk";
+	}
+
+	return "Unknown";
 }
 
 /*
@@ -671,6 +710,15 @@ out:
 	return err;
 }
 
+static ssize_t mmc_manufacturer_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct mmc_card *card = mmc_dev_to_card(dev);
+	return sprintf(buf, "%s", mmc_decode_manf_id(card));
+}
+
+static DEVICE_ATTR(manufacturer, S_IRUGO, mmc_manufacturer_show, NULL);
+
 MMC_DEV_ATTR(cid, "%08x%08x%08x%08x\n", card->raw_cid[0], card->raw_cid[1],
 	card->raw_cid[2], card->raw_cid[3]);
 MMC_DEV_ATTR(csd, "%08x%08x%08x%08x\n", card->raw_csd[0], card->raw_csd[1],
@@ -713,8 +761,18 @@ static struct attribute_group mmc_std_attr_group = {
 	.attrs = mmc_std_attrs,
 };
 
+static struct attribute *mmc_ext_attrs[] = {
+	&dev_attr_manufacturer.attr,
+	NULL,
+};
+
+static struct attribute_group mmc_ext_attr_group = {
+	.attrs = mmc_ext_attrs,
+};
+
 static const struct attribute_group *mmc_attr_groups[] = {
 	&mmc_std_attr_group,
+	&mmc_ext_attr_group,
 	NULL,
 };
 
@@ -1404,6 +1462,9 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		card->rca = 1;
 		memcpy(card->raw_cid, cid, sizeof(card->raw_cid));
 		card->reboot_notify.notifier_call = mmc_reboot_notify;
+
+		printk(KERN_INFO "emmc: I def:mmcinfo:vendor=%s, host=%s:\n",
+			mmc_decode_manf_id(card), mmc_hostname(host));
 	}
 
 	/*

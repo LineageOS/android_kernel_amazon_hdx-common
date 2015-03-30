@@ -2460,6 +2460,18 @@ int mmc_erase(struct mmc_card *card, unsigned int from, unsigned int nr,
 	if (to <= from)
 		return -EINVAL;
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	/* address alignment to 8K (16 sector) */
+	if (arg == MMC_TRIM_ARG) {
+		if ((from % 16) != 0)
+			from = ((from >> 4) + 1) << 4;
+
+		to = (to >> 4) << 4;
+		if (from >= to)
+			return 0;
+	}
+#endif
+
 	/* 'from' and 'to' are inclusive */
 	to -= 1;
 
