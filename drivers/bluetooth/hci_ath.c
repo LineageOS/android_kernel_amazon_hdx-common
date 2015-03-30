@@ -49,6 +49,17 @@
 #include <mach/msm_serial_hs.h>
 #endif
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+#include "linux/if.h"
+#include "linux/socket.h"
+#include "linux/netlink.h"
+#define NETLINK_ATHBT_EVENT       (NETLINK_GENERIC + 14)
+static struct sock *athbt_nl_sock;
+static u32 gpid;
+
+void athbt_netlink_send(char *event_data, u32 event_datalen);
+#endif
+
 static int enableuartsleep = 1;
 module_param(enableuartsleep, int, 0644);
 MODULE_PARM_DESC(enableuartsleep, "Enable Atheros Sleep Protocol");
@@ -163,6 +174,9 @@ static void wakeup_host_work(struct work_struct *work)
 		if (test_bit(BT_TXEXPIRED, &flags))
 			hsuart_serial_clock_on(bsi->uport);
 	}
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	athbt_netlink_send("hostwakeup", 10);
+#endif
 	if (!is_lpm_enabled)
 		modify_timer_task();
 }
@@ -203,6 +217,9 @@ static int ath_bluesleep_gpio_config(int on)
 	if (!on) {
 		if (disable_irq_wake(bsi->host_wake_irq))
 			BT_ERR("Couldn't disable hostwake IRQ wakeup mode\n");
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		athbt_netlink_send("hostisdown", 10);
+#endif
 		goto free_host_wake_irq;
 	}
 
@@ -636,6 +653,56 @@ static int bluesleep_populate_pinfo(struct platform_device *pdev)
 	return 0;
 }
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+void athbt_netlink_send(char *event_data, u32 event_datalen)
+{
+	struct sk_buff *skb = NULL;
+	struct nlmsghdr *nlh;
+
+	skb = nlmsg_new(NLMSG_SPACE(event_datalen), GFP_ATOMIC);
+	if (!skb) {
+		BT_ERR("%s: No memory,\n", __func__);
+		return;
+	}
+
+	nlh = nlmsg_put(skb, gpid, 0, 0 , NLMSG_SPACE(event_datalen), 0);
+	if (!nlh) {
+		BT_ERR("%s: nlmsg_put() failed\n", __func__);
+		return;
+	}
+
+	memcpy(NLMSG_DATA(nlh), event_data, event_datalen);
+
+	NETLINK_CB(skb).pid = 0;        /* from kernel */
+	NETLINK_CB(skb).dst_group = 0;  /* unicast */
+	if (athbt_nl_sock != NULL)
+		netlink_unicast(athbt_nl_sock, skb, gpid, MSG_DONTWAIT);
+}
+
+static void athbt_netlink_receive(struct sk_buff *__skb)
+{
+	struct sk_buff *skb = NULL;
+	struct nlmsghdr *nlh = NULL;
+	u_int8_t *data = NULL;
+	u_int32_t uid, pid, seq;
+
+	skb = skb_get(__skb);
+	if (skb) {
+		/* process netlink message pointed by skb->data */
+		nlh = (struct nlmsghdr *)skb->data;
+		pid = NETLINK_CREDS(skb)->pid;
+		pid = nlh->nlmsg_pid;
+		uid = NETLINK_CREDS(skb)->uid;
+		seq = nlh->nlmsg_seq;
+		data = NLMSG_DATA(nlh);
+		BT_DBG("%s, %s\n", __func__, (char *)NLMSG_DATA(nlh));
+		gpid = pid;
+		kfree_skb(skb);
+	}
+	return;
+}
+#endif
+
 static int __devinit bluesleep_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -673,6 +740,18 @@ static int __devinit bluesleep_probe(struct platform_device *pdev)
 	}
 
 	bsi->irq_polarity = POLARITY_LOW;	/* low edge (falling edge) */
+
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	athbt_nl_sock = (struct sock *)netlink_kernel_create(
+		&init_net, NETLINK_ATHBT_EVENT,
+		1, &athbt_netlink_receive, NULL,
+		THIS_MODULE);
+
+	if (athbt_nl_sock == NULL) {
+		BT_ERR("%s NetLink Create Failed\n", __func__);
+		goto free_bsi;
+	}
+#endif
 
 	return 0;
 
