@@ -21,7 +21,11 @@
 #include <linux/debugfs.h>
 #include "rmnet_usb.h"
 
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+static char *rmnet_dev_names[MAX_RMNET_DEVS] = {"qmi_usb"};
+#else
 static char *rmnet_dev_names[MAX_RMNET_DEVS] = {"hsicctl"};
+#endif
 module_param_array(rmnet_dev_names, charp, NULL, S_IRUGO | S_IWUSR);
 
 #define DEFAULT_READ_URB_LENGTH		0x1000
@@ -911,6 +915,9 @@ int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 	dev->resp_avail_cnt = 0;
 	dev->tx_ctrl_err_cnt = 0;
 	dev->set_ctrl_line_state_cnt = 0;
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+	dev->mdm_wait_timeout = 60;
+#endif
 
 	dev->inturb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!dev->inturb) {
