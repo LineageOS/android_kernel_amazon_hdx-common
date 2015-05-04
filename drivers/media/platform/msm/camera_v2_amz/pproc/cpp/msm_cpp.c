@@ -34,9 +34,9 @@
 #include <media/msm_isp.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
-#include <media/msmb_camera.h>
-#include <media/msmb_generic_buf_mgr.h>
-#include <media/msmb_pproc.h>
+#include <media/msmb_camera_amz.h>
+#include <media/msmb_generic_buf_mgr_amz.h>
+#include <media/msmb_pproc_amz.h>
 #include "msm_cpp.h"
 #include "msm_isp_util.h"
 #include "msm_camera_io_util.h"

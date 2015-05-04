@@ -1,6 +1,6 @@
-ccflags-y += -Idrivers/media/platform/msm/camera_v2
-ccflags-y += -Idrivers/media/platform/msm/camera_v2/sensor/io
-ccflags-y += -Idrivers/media/platform/msm/camera_v2/sensor/cci
+ccflags-y += -Idrivers/media/platform/msm/camera_v2_amz
+ccflags-y += -Idrivers/media/platform/msm/camera_v2_amz/sensor/io
+ccflags-y += -Idrivers/media/platform/msm/camera_v2_amz/sensor/cci
 ifneq (,$(filter apollo thor,$(TARGET_PRODUCT)))
 obj-$(CONFIG_MSMB_CAMERA) += msm_actuator_8074.o
 else

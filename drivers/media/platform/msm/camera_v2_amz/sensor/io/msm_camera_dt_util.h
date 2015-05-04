@@ -13,7 +13,7 @@
 #ifndef MSM_CAMERA_DT_UTIL_H__
 #define MSM_CAMERA_DT_UTIL_H__
 
-#include <mach/camera2.h>
+#include <mach/camera2_amz.h>
 #include <linux/gpio.h>
 #include <linux/of.h>
 #include "msm_camera_i2c.h"
