@@ -16,7 +16,7 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <media/v4l2-subdev.h>
-#include <media/msmb_ispif.h>
+#include <media/msmb_ispif_amz.h>
 #include "msm_sd.h"
 #include "msm_ispif_frame_event.h"
 

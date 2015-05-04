@@ -10,7 +10,7 @@
  * GNU General Public License for more details.
  */
 
-#include <mach/camera2.h>
+#include <mach/camera2_amz.h>
 #include <linux/module.h>
 #include "msm_camera_i2c.h"
 #include "msm_cci.h"

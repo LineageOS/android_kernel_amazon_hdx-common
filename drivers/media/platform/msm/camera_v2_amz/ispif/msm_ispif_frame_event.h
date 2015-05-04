@@ -16,8 +16,8 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <media/v4l2-subdev.h>
-#include <media/msmb_ispif.h>
-#include <media/msmb_camera.h>
+#include <media/msmb_ispif_amz.h>
+#include <media/msmb_camera_amz.h>
 #include "msm_sd.h"
 
 struct ispif_device;

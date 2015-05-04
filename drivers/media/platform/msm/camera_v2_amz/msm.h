@@ -29,7 +29,7 @@
 #include <media/v4l2-mediabus.h>
 #include <media/videobuf2-dma-contig.h>
 #include <media/videobuf2-msm-mem.h>
-#include <media/msmb_camera.h>
+#include <media/msmb_camera_amz.h>
 
 #define MSM_POST_EVT_TIMEOUT 15000
 #define MSM_POST_EVT_NOTIMEOUT 0xFFFFFFFF

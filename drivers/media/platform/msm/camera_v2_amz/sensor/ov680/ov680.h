@@ -19,7 +19,7 @@
 #include "ov680_firmware.h"
 #include "ov680_flash.h"
 
-//#include <media/msm_camera2.h>
+//#include <media/msm_camera2_amz.h>
 //#include "linux/tplms_camera.h"
 
 extern struct platform_driver ov680_driver;

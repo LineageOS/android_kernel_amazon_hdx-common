@@ -10,7 +10,7 @@
  * GNU General Public License for more details.
  */
 
-#include <mach/camera2.h>
+#include <mach/camera2_amz.h>
 #include "msm_camera_spi.h"
 
 #undef SPIDBG
