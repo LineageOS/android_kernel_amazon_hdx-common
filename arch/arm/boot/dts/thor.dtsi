@@ -769,6 +769,7 @@
 
 &mdss_mdp {
 	qcom,mdss-pref-prim-intf = "dsi";
+	qcom,mdss-ib-factor-overlap = <2 1>;	/* 2 times  */
 };
 
 &mdss_fb0 {
