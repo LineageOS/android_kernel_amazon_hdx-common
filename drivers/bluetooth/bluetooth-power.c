@@ -137,11 +137,15 @@ static int bt_configure_vreg(struct bt_power_vreg_data *vreg)
 	BT_PWR_DBG("config %s", vreg->name);
 
 	/* Get the regulator handle for vreg */
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	if (!(vreg->reg)) {
+#endif
 		rc = bt_vreg_init(vreg);
 		if (rc < 0)
 			return rc;
+#if !defined(CONFIG_ARCH_MSM8974_THOR) && !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	}
+#endif
 	rc = bt_vreg_enable(vreg);
 
 	return rc;
@@ -193,6 +197,18 @@ static int bluetooth_power(int on)
 	BT_PWR_DBG("on: %d", on);
 
 	if (on) {
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (bt_power_pdata->bt_vdd_pa) {
+			rc = bt_configure_vreg(bt_power_pdata->bt_vdd_pa);
+			if (rc < 0) {
+				BT_PWR_ERR("bt_power vddpa config failed");
+				goto out;
+			}
+			regulator_set_optimum_mode(
+				bt_power_pdata->bt_vdd_pa->reg,
+				BT_VDD_PA_CURRENT);
+		}
+#else
 		if (bt_power_pdata->bt_vdd_io) {
 			rc = bt_configure_vreg(bt_power_pdata->bt_vdd_io);
 			if (rc < 0) {
@@ -200,6 +216,7 @@ static int bluetooth_power(int on)
 				goto out;
 			}
 		}
+#endif
 		if (bt_power_pdata->bt_vdd_ldo) {
 			rc = bt_configure_vreg(bt_power_pdata->bt_vdd_ldo);
 			if (rc < 0) {
@@ -207,6 +224,18 @@ static int bluetooth_power(int on)
 				goto vdd_ldo_fail;
 			}
 		}
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (bt_power_pdata->bt_vdd_io) {
+			rc = bt_configure_vreg(bt_power_pdata->bt_vdd_io);
+			if (rc < 0) {
+				BT_PWR_ERR("bt_power vddio config failed");
+				goto vdd_io_fail;
+			}
+			regulator_set_optimum_mode(
+				bt_power_pdata->bt_vdd_pa->reg,
+				BT_VDD_PA_CURRENT);
+		}
+#else
 		if (bt_power_pdata->bt_vdd_pa) {
 			rc = bt_configure_vreg(bt_power_pdata->bt_vdd_pa);
 			if (rc < 0) {
@@ -217,6 +246,7 @@ static int bluetooth_power(int on)
 				bt_power_pdata->bt_vdd_pa->reg,
 				BT_VDD_PA_CURRENT);
 		}
+#endif
 		if (bt_power_pdata->bt_chip_pwd) {
 			rc = bt_configure_vreg(bt_power_pdata->bt_chip_pwd);
 			if (rc < 0) {
@@ -237,12 +267,29 @@ gpio_fail:
 		if (bt_power_pdata->bt_gpio_sys_rst)
 			gpio_free(bt_power_pdata->bt_gpio_sys_rst);
 		bt_vreg_disable(bt_power_pdata->bt_chip_pwd);
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		if (bt_power_pdata->bt_chip_pwd->reg)
+			regulator_put(bt_power_pdata->bt_chip_pwd->reg);
+#endif
 chip_pwd_fail:
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		bt_vreg_disable(bt_power_pdata->bt_vdd_io);
+		if (bt_power_pdata->bt_vdd_io->reg)
+			regulator_put(bt_power_pdata->bt_vdd_io->reg);
+vdd_io_fail:
+#else
 		bt_vreg_disable(bt_power_pdata->bt_vdd_pa);
 vdd_pa_fail:
+#endif
 		bt_vreg_disable(bt_power_pdata->bt_vdd_ldo);
 vdd_ldo_fail:
+#if defined(CONFIG_ARCH_MSM8974_THOR) || defined(CONFIG_ARCH_MSM8974_APOLLO)
+		bt_vreg_disable(bt_power_pdata->bt_vdd_pa);
+		if (bt_power_pdata->bt_vdd_pa->reg)
+			regulator_put(bt_power_pdata->bt_vdd_pa->reg);
+#else
 		bt_vreg_disable(bt_power_pdata->bt_vdd_io);
+#endif
 	}
 
 out:
