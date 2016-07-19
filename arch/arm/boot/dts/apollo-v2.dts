@@ -16,6 +16,12 @@
 /include/ "apq8074-v2.0-1.dtsi"
 /include/ "apollo.dtsi"
 
+&soc {
+        qcom,qcrypto1@fd440000 {
+		status = "disabled";
+	};
+};
+
 / {
 	model = "Amazon Apollo v2";
 	compatible = "amazon,apollo", "qcom,msm8974-cdp", "qcom,msm8974";

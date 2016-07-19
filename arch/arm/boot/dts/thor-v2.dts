@@ -15,6 +15,12 @@
 /include/ "apq8074-v2.0-1.dtsi"
 /include/ "thor.dtsi"
 
+&soc {
+        qcom,qcrypto1@fd440000 {
+		status = "disabled";
+	};
+};
+
 / {
 	model = "Amazon Thor v2";
 	compatible = "amazon,thor", "qcom,msm8974-cdp", "qcom,msm8974";

@@ -16,6 +16,12 @@
 /include/ "thor.dtsi"
 /include/ "thor-apollo-emmc-sdhc-disable-hs200.dtsi"
 
+&soc {
+        qcom,qcrypto1@fd440000 {
+		status = "disabled";
+	};
+};
+
 / {
 	model = "Amazon Thor v1";
 	compatible = "amazon,thor", "qcom,msm8974-cdp", "qcom,msm8974";
