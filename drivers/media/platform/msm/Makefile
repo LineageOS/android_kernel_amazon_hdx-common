@@ -8,7 +8,7 @@ else
 ifeq ($(CONFIG_ARCH_MSM8974_APOLLO),y)
 obj-$(CONFIG_MSMB_CAMERA) += camera_v2_amz/
 else
-endif
 obj-$(CONFIG_MSMB_CAMERA) += camera_v2/
+endif
 endif
 obj-y += vcap/
