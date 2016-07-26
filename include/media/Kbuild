@@ -10,27 +10,15 @@ header-y += msm_mercury.h
 header-y += msm_jpeg.h
 header-y += msm_media_info.h
 header-y += msm_vidc.h
-ifeq ($(CONFIG_ARCH_MSM8974_THOR),y)
-header-y += msmb_camera_amz.h
-header-y += msm_cam_sensor_amz.h
-header-y += msmb_isp_amz.h
-header-y += msmb_ispif_amz.h
-header-y += msmb_generic_buf_mgr_amz.h
-header-y += msmb_pproc_amz.h
-else
-ifeq ($(CONFIG_ARCH_MSM8974_APOLLO),y)
-header-y += msmb_camera_amz.h
-header-y += msm_cam_sensor_amz.h
-header-y += msmb_isp_amz.h
-header-y += msmb_ispif_amz.h
-header-y += msmb_generic_buf_mgr_amz.h
-header-y += msmb_pproc_amz.h
-else
 header-y += msmb_camera.h
 header-y += msm_cam_sensor.h
 header-y += msmb_isp.h
 header-y += msmb_ispif.h
 header-y += msmb_generic_buf_mgr.h
 header-y += msmb_pproc.h
-endif
-endif
+header-y += msmb_camera_amz.h
+header-y += msm_cam_sensor_amz.h
+header-y += msmb_isp_amz.h
+header-y += msmb_ispif_amz.h
+header-y += msmb_generic_buf_mgr_amz.h
+header-y += msmb_pproc_amz.h
