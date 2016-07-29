@@ -95,6 +95,10 @@ static long alarm_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		pr_alarm(IO, "alarm %d clear\n", alarm_type);
 		alarm_try_to_cancel(&alarms[alarm_type]);
 		if (alarm_pending) {
+			if (alarm_type & ANDROID_ALARM_WAKEUP_MASK) {
+				alarm_pending &=
+					~ANDROID_ALARM_WAKEUP_TRIGGER_MASK;
+			}
 			alarm_pending &= ~alarm_type_mask;
 			if (!alarm_pending && !wait_pending)
 				wake_unlock(&alarm_wake_lock);
@@ -197,7 +201,9 @@ from_old_alarm_set:
 			goto err1;
 		}
 		break;
-
+	case ANDROID_ALARM_GET_WAKEUP_MASK:
+		rv = ANDROID_ALARM_WAKEUP_TRIGGER_MASK;
+		break;
 	default:
 		rv = -EINVAL;
 		goto err1;
@@ -227,6 +233,7 @@ static int alarm_release(struct inode *inode, struct file *file)
 					!!(alarm_pending & alarm_type_mask));
 				alarm_enabled &= ~alarm_type_mask;
 			}
+			alarm_pending &= ~ANDROID_ALARM_WAKEUP_TRIGGER_MASK;
 			spin_unlock_irqrestore(&alarm_slock, flags);
 			alarm_cancel(&alarms[i]);
 			spin_lock_irqsave(&alarm_slock, flags);
@@ -248,14 +255,20 @@ static int alarm_release(struct inode *inode, struct file *file)
 static void alarm_triggered(struct alarm *alarm)
 {
 	unsigned long flags;
-	uint32_t alarm_type_mask = 1U << alarm->type;
+	uint32_t alarm_type_mask = 1U << (alarm->type &
+			~(ANDROID_ALARM_WAKEUP_TRIGGER_MASK));
 
-	pr_alarm(INT, "alarm_triggered type %d\n", alarm->type);
+	pr_alarm(INT, "alarm_triggered type %d %d\n",
+			(alarm->type & ~ANDROID_ALARM_WAKEUP_TRIGGER_MASK),
+			alarm->type);
 	spin_lock_irqsave(&alarm_slock, flags);
 	if (alarm_enabled & alarm_type_mask) {
 		wake_lock_timeout(&alarm_wake_lock, 5 * HZ);
 		alarm_enabled &= ~alarm_type_mask;
 		alarm_pending |= alarm_type_mask;
+		alarm_pending |= (alarm->type &
+				ANDROID_ALARM_WAKEUP_TRIGGER_MASK);
+		alarm->type &= ~(ANDROID_ALARM_WAKEUP_TRIGGER_MASK);
 		wake_up(&alarm_wait_queue);
 	}
 	spin_unlock_irqrestore(&alarm_slock, flags);

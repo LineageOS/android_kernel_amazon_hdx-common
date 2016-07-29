@@ -89,7 +89,8 @@ enum android_alarm_return_flags {
 				1U << ANDROID_ALARM_ELAPSED_REALTIME,
 	ANDROID_ALARM_RTC_POWEROFF_WAKEUP_MASK = 1U << ANDROID_ALARM_RTC_POWEROFF_WAKEUP,
 	ANDROID_ALARM_SYSTEMTIME_MASK = 1U << ANDROID_ALARM_SYSTEMTIME,
-	ANDROID_ALARM_TIME_CHANGE_MASK = 1U << 16
+	ANDROID_ALARM_TIME_CHANGE_MASK = 1U << 16,
+	ANDROID_ALARM_WAKEUP_TRIGGER_MASK = 1U << 20
 };
 
 /* Disable alarm */
@@ -105,6 +106,7 @@ enum android_alarm_return_flags {
 #define ANDROID_ALARM_GET_TIME(type)        ALARM_IOW(4, type, struct timespec)
 #define ANDROID_ALARM_SET_RTC               _IOW('a', 5, struct timespec)
 #define ANDROID_ALARM_BASE_CMD(cmd)         (cmd & ~(_IOC(0, 0, 0xf0, 0)))
+#define ANDROID_ALARM_GET_WAKEUP_MASK	    _IO('a', 15)
 #define ANDROID_ALARM_IOCTL_TO_TYPE(cmd)    (_IOC_NR(cmd) >> 4)
 
 #endif
