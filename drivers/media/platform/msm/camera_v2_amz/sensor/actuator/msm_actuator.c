@@ -1004,13 +1004,19 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 		step_boundary =
 			a_ctrl->region_params[region_index].
 			step_bound[MOVE_NEAR];
+#if !defined(CONFIG_ARCH_MSM8974_APOLLO)
 		if (step_boundary > set_info->af_tuning_params.total_steps - 1) {
 		     pr_err("%s: Error af steps mismatch!", __func__);
 			 return -EFAULT;
 		}
+#endif
 		for (; step_index <= step_boundary;
 			step_index++) {
+#if defined(CONFIG_ARCH_MSM8974_APOLLO)
+			cur_code += code_per_step;
+#else
 			cur_code = set_info->af_tuning_params.initial_code + ((step_index*code_per_step)>>8);
+#endif
 			if (cur_code < max_code_size)
 				a_ctrl->step_position_table[step_index] =
 					cur_code;
@@ -1113,12 +1119,14 @@ static int32_t msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl,
 		pr_err("Actuator function table not found\n");
 		return rc;
 	}
+#if !defined(CONFIG_ARCH_MSM8974_APOLLO)
 	if (set_info->af_tuning_params.total_steps
 		>  MAX_ACTUATOR_AF_TOTAL_STEPS) {
 		pr_err("%s: Max actuator totalsteps exceeded = %d\n",
 		__func__, set_info->af_tuning_params.total_steps);
 		return -EFAULT;
 	}
+#endif
 	if (set_info->af_tuning_params.region_size
 		> MAX_ACTUATOR_REGION) {
 		pr_err("MAX_ACTUATOR_REGION is exceeded.\n");
