@@ -39,13 +39,6 @@
 #define CDBG(fmt, args...) do { } while (0)
 #endif
 
-/* Max bytes that can be read per CCI read transaction */
-#define CCI_READ_MAX 12
-
-int add_i2c_func_sysfs_file(struct device* dev);
-/* Max bytes that can be read per CCI read transaction */
-#define CCI_READ_MAX 12
-
 int add_i2c_func_sysfs_file(struct device* dev);
 /* Max bytes that can be read per CCI read transaction */
 #define CCI_READ_MAX 12
