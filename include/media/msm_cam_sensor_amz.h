@@ -11,7 +11,6 @@
 #define I2C_SEQ_REG_SETTING_MAX   5
 /* Fix buffer size for firmware loaded reg settings */
 #define I2C_SEQ_REG_DATA_MAX      (50*1024)
-#endif
 #define I2C_REG_DATA_MAX          (8*1024)
 #define MAX_CID                   16
 
